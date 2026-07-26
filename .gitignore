@@ -1,0 +1,38 @@
+# Entornos Virtuales
+venv/
+env/
+ENV/
+.env
+
+# Cache de Python y compilación
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.ipynb_checkpoints/
+
+# Base de datos y archivos estáticos/media locales
+db.sqlite3
+staticfiles/
+media/
+imagenes/subimagen/
+imagenes/descargas/
+
+# Archivos de credenciales sensibles (Google APIs)
+client_secrets.json
+mycreds.txt
+
+# Archivos temporales de procesamiento y rásteres GEE
+shapefiles/
+temp_shapefiles/
+*.tif
+*.zip
+
+# Archivos de sistema operativo
+.DS_Store
+Thumbs.db
+
+# Modelos de Machine Learning (archivos pesados)
+models/
+*.pth
+*.pt

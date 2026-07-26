@@ -1,0 +1,426 @@
+{% extends "base.html" %}
+{% load static %}
+{% block content %}
+<style>
+  body {
+    background-color: #121212;
+    font-family: 'Montserrat', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    color: #e4e4e7;
+  }
+
+  .header-container {
+    background-color: #1e1e1e;
+    border-bottom: 1px solid #2d2d2d;
+    padding: 20px 30px;
+    margin-bottom: 30px;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.15);
+  }
+
+  .btn-back-custom {
+    background: none;
+    border: 1px solid #3d3d3d;
+    border-radius: 50%;
+    width: 40px;
+    height: 40px;
+    display: inline-flex;
+    justify-content: center;
+    align-items: center;
+    color: #a1a1aa;
+    transition: all 0.2s ease-in-out;
+    text-decoration: none;
+  }
+
+  .btn-back-custom:hover {
+    background-color: #2d2d2d;
+    color: #ffffff;
+    border-color: #4d4d4d;
+    transform: translateX(-2px);
+  }
+
+  .dashboard-card {
+    background-color: #1e1e1e;
+    border: 1px solid #2d2d2d;
+    border-radius: 16px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+    margin-bottom: 30px;
+    overflow: hidden;
+    transition: transform 0.2s;
+  }
+
+  .dashboard-card:hover {
+    transform: translateY(-2px);
+  }
+
+  .card-header-custom {
+    background-color: #1e1e1e;
+    border-bottom: 1px solid #2d2d2d;
+    padding: 20px 25px;
+    font-weight: 700;
+    color: #ffffff;
+    font-size: 1.1rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  .card-body-custom {
+    padding: 25px;
+  }
+
+  .image-container {
+    border-radius: 12px;
+    overflow: hidden;
+    border: 1px solid #2d2d2d;
+    background-color: #000000;
+    position: relative;
+  }
+
+  .carousel-item img {
+    max-height: 400px;
+    object-fit: contain;
+    width: 100%;
+  }
+
+  .carousel-caption-custom {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background: rgba(30, 30, 30, 0.85);
+    backdrop-filter: blur(5px);
+    color: #ffffff;
+    padding: 15px;
+    text-align: center;
+  }
+
+  .carousel-caption-custom h5 {
+    margin-bottom: 5px;
+    font-weight: 700;
+    color: #a7f3d0;
+  }
+
+  .carousel-caption-custom p {
+    margin: 0;
+    font-size: 0.95rem;
+    opacity: 0.9;
+  }
+
+  .chart-image {
+    width: 100%;
+    height: auto;
+    border-radius: 12px;
+    filter: invert(0.9) hue-rotate(180deg) brightness(0.95) contrast(1.05); /* Inversión de colores para que el gráfico sea oscuro/gris */
+  }
+
+  .table-custom {
+    margin-top: 15px;
+    border-collapse: separate;
+    border-spacing: 0;
+    width: 100%;
+    --bs-table-bg: #1e1e1e !important;
+    --bs-table-color: #e4e4e7 !important;
+    --bs-table-border-color: #2d2d2d !important;
+  }
+
+  .table-custom th {
+    background-color: #1e1e1e !important;
+    color: #a1a1aa !important;
+    font-weight: 600;
+    border-bottom: 2px solid #2d2d2d !important;
+    padding: 12px 15px;
+    text-align: center;
+  }
+
+  .table-custom td {
+    background-color: #1e1e1e !important;
+    padding: 12px 15px;
+    border-bottom: 1px solid #2d2d2d !important;
+    text-align: center;
+    color: #e4e4e7 !important;
+  }
+
+  .table-custom tr:last-child td {
+    border-bottom: none !important;
+  }
+
+  .badge-forest {
+    background-color: #27272a;
+    color: #f4f4f5;
+    font-weight: 600;
+    padding: 6px 12px;
+    border-radius: 30px;
+    font-size: 0.85rem;
+    display: inline-block;
+    border: 1px solid #3f3f46;
+  }
+
+  .badge-change-down {
+    background-color: #2d1919;
+    color: #fca5a5;
+    font-weight: 600;
+    padding: 4px 8px;
+    border-radius: 6px;
+    font-size: 0.75rem;
+    border: 1px solid #4a1d1d;
+  }
+
+  .badge-change-up {
+    background-color: #192d1f;
+    color: #a7f3d0;
+    font-weight: 600;
+    padding: 4px 8px;
+    border-radius: 6px;
+    font-size: 0.75rem;
+    border: 1px solid #1d4a2a;
+  }
+
+  .badge-change-neutral {
+    background-color: #27272a;
+    color: #a1a1aa;
+    font-weight: 600;
+    padding: 4px 8px;
+    border-radius: 6px;
+    font-size: 0.75rem;
+    border: 1px solid #3f3f46;
+  }
+
+  .info-box {
+    background-color: #27272a;
+    border-left: 4px solid #71717a;
+    color: #e4e4e7;
+    padding: 15px;
+    border-radius: 4px 8px 8px 4px;
+    font-size: 0.85rem;
+    line-height: 1.5;
+    margin-top: 15px;
+  }
+
+  /* Deshabilitar transiciones para cambio instantáneo en el lightbox */
+  #lightboxCarousel .carousel-item {
+    transition: none !important;
+  }
+
+  /* Fullscreen Native Styles */
+  #lightboxModal:fullscreen {
+    background-color: #000000 !important;
+  }
+  #lightboxModal:-webkit-full-screen {
+    background-color: #000000 !important;
+  }
+</style>
+
+<div class="header-container d-flex align-items-center">
+  <a href="#" onclick="history.back(); return false;" class="btn-back-custom me-3" title="Regresar">
+    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="currentColor" class="bi bi-chevron-left" viewBox="0 0 16 16">
+      <path fill-rule="evenodd" d="M11.354 1.646a.5.5 0 0 1 0 .708L5.707 8l5.647 5.646a.5.5 0 0 1-.708.708l-6-6a.5.5 0 0 1 0-.708l6-6a.5.5 0 0 1 .708 0z"/>
+    </svg>
+  </a>
+  <h2 class="m-0 fs-4 fw-bold text-light">
+    Evaluación de Área de Estudio: <span class="text-secondary">{{ imagen_satelital.name }}</span>
+  </h2>
+</div>
+
+<div class="container-fluid px-4">
+  <div class="row">
+    <!-- Left Column: Carousel & Table -->
+    <div class="col-lg-6">
+      <div class="card dashboard-card">
+        <div class="card-header-custom">
+          <span>Secuencia Temporal del Área</span>
+          {% if min_year and max_year %}
+          <span class="badge bg-secondary">{{ min_year }} - {{ max_year }}</span>
+          {% endif %}
+        </div>
+        <div class="card-body-custom">
+          <div class="image-container mb-4">
+            <div id="carouselExample" class="carousel slide" data-bs-ride="false" data-bs-interval="false">
+              <div class="carousel-inner">
+                {% for subimagen in subimagenes %}
+                <div class="carousel-item {% if forloop.first %}active{% endif %}">
+                  <div class="position-relative" onclick="openLightbox({{ forloop.index0 }});" style="cursor: zoom-in;">
+                    <img src="{{ subimagen.subImagen.url }}" class="d-block w-100" alt="Subimagen {{ subimagen.id }}">
+                  </div>
+                  <div class="carousel-caption-custom">
+                    <h5>Año: {{ subimagen.anio_imagen }}</h5>
+                    <p>Porcentaje de Cobertura Forestal: <strong>{{ subimagen.porcentaje|floatformat:2 }}%</strong></p>
+                  </div>
+                </div>
+                {% endfor %}
+              </div>
+              <button class="carousel-control-prev" type="button" data-bs-target="#carouselExample" data-bs-slide="prev">
+                <span class="carousel-control-prev-icon" aria-hidden="true"></span>
+                <span class="visually-hidden">Anterior</span>
+              </button>
+              <button class="carousel-control-next" type="button" data-bs-target="#carouselExample" data-bs-slide="next">
+                <span class="carousel-control-next-icon" aria-hidden="true"></span>
+                <span class="visually-hidden">Siguiente</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Summary Table -->
+          <h5 class="fw-bold mt-4 mb-3 text-secondary" style="font-size: 0.95rem; text-transform: uppercase; letter-spacing: 0.5px;">Tabla de Datos Históricos</h5>
+          <div class="table-responsive">
+            <table class="table table-custom">
+              <thead>
+                <tr>
+                  <th>Año</th>
+                  <th>Cobertura Forestal</th>
+                  <th>Cambio Respecto al Año Anterior</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for subimagen in subimagenes %}
+                <tr>
+                  <td class="fw-bold">{{ subimagen.anio_imagen }}</td>
+                  <td>
+                    <span class="badge-forest">{{ subimagen.porcentaje|floatformat:2 }}%</span>
+                  </td>
+                  <td>
+                    <span class="change-indicator" data-index="{{ forloop.index0 }}" data-value="{{ subimagen.porcentaje }}">
+                      -
+                    </span>
+                  </td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Right Column: Matplotlib Graph -->
+    <div class="col-lg-6">
+      <div class="card dashboard-card">
+        <div class="card-header-custom">
+          <span>Gráfico de Tendencia Forestal</span>
+          <span class="text-muted"><i class="bi bi-graph-up"></i></span>
+        </div>
+        <div class="card-body-custom text-center">
+          <img src="data:image/png;base64,{{ imagen_base64 }}" alt="Gráfico de Tendencia" class="chart-image img-fluid">
+          
+          <div class="info-box text-start mt-4">
+            <div class="fw-bold mb-1"><i class="bi bi-info-circle-fill"></i> Nota metodológica:</div>
+            Los datos e imágenes anteriores han sido generados analizando imágenes satelitales multiespectrales recortadas del polígono de interés. El porcentaje forestal representa la cantidad de cuadrículas clasificadas como <strong>Bosque (Forest)</strong> mediante una arquitectura de red neuronal profunda <strong>Vision Transformer (ViT-B/16)</strong> entrenada para clasificación de cobertura terrestre.
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal fade" id="lightboxModal" tabindex="-1" aria-hidden="true" style="background-color: rgba(10, 10, 10, 0.95); z-index: 2000;">
+  <div class="modal-dialog modal-dialog-centered modal-xl modal-fullscreen-lg-down">
+    <div class="modal-content shadow-none border-0" style="background-color: transparent;">
+      
+      <div class="modal-header border-0 p-0 position-absolute top-0 end-0 m-4" style="z-index: 2050;">
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Cerrar" style="width: 2rem; height: 2rem; filter: drop-shadow(0px 2px 5px rgba(0,0,0,0.5));"></button>
+      </div>
+
+      <div class="modal-body p-0 d-flex flex-column align-items-center justify-content-center" style="height: 100vh;">
+        <div id="lightboxCarousel" class="carousel w-100" data-bs-ride="false" data-bs-interval="false" data-bs-keyboard="true">
+          <div class="carousel-inner">
+            {% for subimagen in subimagenes %}
+            <div class="carousel-item {% if forloop.first %}active{% endif %}">
+              <div class="position-relative d-flex align-items-center justify-content-center" style="height: 100vh; padding: 20px;">
+                <img src="{{ subimagen.subImagen.url }}" class="rounded" style="width: 100%; height: 92vh; object-fit: contain; box-shadow: 0 10px 50px rgba(0,0,0,0.95);" alt="Clasificación {{ subimagen.id }}">
+                <div class="position-absolute bottom-0 mb-4 text-center p-2 px-4 rounded-pill" style="background-color: rgba(20, 20, 20, 0.85); backdrop-filter: blur(10px); border: 1px solid rgba(255,255,255,0.1); box-shadow: 0 5px 25px rgba(0,0,0,0.5); z-index: 10;">
+                  <span class="fw-bold text-success mr-2">Año: {{ subimagen.anio_imagen }}</span>
+                  <span class="text-light border-left pl-2 ml-2" style="border-left: 1px solid rgba(255,255,255,0.2) !important;">Cobertura Forestal: <strong class="text-white">{{ subimagen.porcentaje|floatformat:2 }}%</strong></span>
+                </div>
+              </div>
+            </div>
+            {% endfor %}
+          </div>
+          
+          <button class="carousel-control-prev" type="button" data-bs-target="#lightboxCarousel" data-bs-slide="prev" style="width: 8%;">
+            <span class="carousel-control-prev-icon" aria-hidden="true" style="width: 3rem; height: 3rem;"></span>
+            <span class="visually-hidden">Anterior</span>
+          </button>
+          <button class="carousel-control-next" type="button" data-bs-target="#lightboxCarousel" data-bs-slide="next" style="width: 8%;">
+            <span class="carousel-control-next-icon" aria-hidden="true" style="width: 3rem; height: 3rem;"></span>
+            <span class="visually-hidden">Siguiente</span>
+          </button>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<script>
+  // Simple client-side script to calculate year-over-year changes in the table
+  document.addEventListener("DOMContentLoaded", function() {
+    const rows = document.querySelectorAll(".change-indicator");
+    let prevVal = null;
+    
+    rows.forEach((span, index) => {
+      const currentVal = parseFloat(span.getAttribute("data-value"));
+      
+      if (index === 0) {
+        span.innerHTML = '<span class="badge-change-neutral">Línea Base</span>';
+      } else {
+        const diff = currentVal - prevVal;
+        const formattedDiff = diff.toFixed(2);
+        
+        if (diff > 0) {
+          span.innerHTML = `<span class="badge-change-up">▲ +${formattedDiff}%</span>`;
+        } else if (diff < 0) {
+          span.innerHTML = `<span class="badge-change-down">▼ ${formattedDiff}%</span>`;
+        } else {
+          span.innerHTML = `<span class="badge-change-neutral">0.00%</span>`;
+        }
+      }
+      prevVal = currentVal;
+    });
+  });
+
+  // Lightbox helper function
+  function openLightbox(index) {
+    const myCarousel = document.querySelector('#lightboxCarousel');
+    const carousel = new bootstrap.Carousel(myCarousel);
+    carousel.to(index);
+    
+    const modalEl = document.getElementById('lightboxModal');
+    const myModal = new bootstrap.Modal(modalEl);
+    myModal.show();
+    
+    // Request native fullscreen
+    if (modalEl.requestFullscreen) {
+      modalEl.requestFullscreen();
+    } else if (modalEl.webkitRequestFullscreen) {
+      modalEl.webkitRequestFullscreen();
+    } else if (modalEl.msRequestFullscreen) {
+      modalEl.msRequestFullscreen();
+    }
+  }
+
+  // Handle exiting native fullscreen (e.g. by pressing Esc)
+  document.addEventListener('fullscreenchange', function() {
+    if (!document.fullscreenElement) {
+      const modalEl = document.getElementById('lightboxModal');
+      const modalInstance = bootstrap.Modal.getInstance(modalEl);
+      if (modalInstance) {
+        modalInstance.hide();
+      }
+    }
+  });
+
+  // Handle closing modal manually (exit fullscreen if still active)
+  document.addEventListener('DOMContentLoaded', function() {
+    const modalEl = document.getElementById('lightboxModal');
+    modalEl.addEventListener('hidden.bs.modal', function () {
+      if (document.fullscreenElement) {
+        if (document.exitFullscreen) {
+          document.exitFullscreen();
+        } else if (document.webkitExitFullscreen) {
+          document.webkitExitFullscreen();
+        } else if (document.msExitFullscreen) {
+          document.msExitFullscreen();
+        }
+      }
+    });
+  });
+</script>
+{% endblock %}

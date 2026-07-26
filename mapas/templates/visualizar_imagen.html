@@ -1,0 +1,608 @@
+{% extends 'base.html' %} {% block content %}
+<style>
+  body {
+    background-color: #121212;
+    color: #e4e4e7;
+    font-family: "Montserrat", sans-serif;
+  }
+
+  .preview-card {
+    background-color: #1e1e1e;
+    border: 1px solid #2d2d2d;
+    border-radius: 12px;
+    box-shadow:
+      0 10px 15px -3px rgba(0, 0, 0, 0.3),
+      0 4px 6px -2px rgba(0, 0, 0, 0.2);
+    overflow: hidden;
+    margin-bottom: 24px;
+  }
+
+  .preview-card-header {
+    background-color: #27272a;
+    border-bottom: 1px solid #3f3f46;
+    padding: 16px 20px;
+  }
+
+  .preview-card-body {
+    padding: 24px;
+  }
+
+  .form-label-custom {
+    color: #a1a1aa;
+    font-size: 0.8rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 6px;
+  }
+
+  .form-control-custom {
+    background-color: #121212 !important;
+    border: 1px solid #3d3d3d !important;
+    color: #ffffff !important;
+    font-size: 0.95rem;
+    padding: 10px 12px;
+    border-radius: 8px;
+  }
+
+  .form-control-custom[readonly] {
+    cursor: not-allowed;
+    opacity: 0.9;
+  }
+
+  .btn-save {
+    background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+    border: none;
+    color: #ffffff;
+    font-weight: 600;
+    padding: 12px 24px;
+    border-radius: 8px;
+    transition: all 0.2s ease;
+    box-shadow: 0 4px 6px rgba(16, 185, 129, 0.2);
+  }
+
+  .btn-save:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 6px 12px rgba(16, 185, 129, 0.3);
+    opacity: 0.95;
+  }
+
+  .btn-cancel {
+    background-color: #27272a;
+    border: 1px solid #3f3f46;
+    color: #f4f4f5;
+    font-weight: 600;
+    padding: 12px 24px;
+    border-radius: 8px;
+    transition: all 0.2s ease;
+  }
+
+  .btn-cancel:hover {
+    background-color: #3f3f46;
+    color: #ffffff;
+  }
+
+  /* Fullscreen Loading Overlay */
+  #loading-overlay {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    background-color: rgba(10, 10, 10, 0.9);
+    z-index: 99999;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    color: #ffffff;
+  }
+
+  .loader-spinner {
+    width: 80px;
+    height: 80px;
+    border: 6px solid #27272a;
+    border-top: 6px solid #10b981;
+    border-radius: 50%;
+    animation: spin 1.2s linear infinite;
+    margin-bottom: 24px;
+    box-shadow: 0 0 15px rgba(16, 185, 129, 0.3);
+  }
+
+  .loading-title {
+    font-size: 1.5rem;
+    font-weight: 700;
+    margin-bottom: 12px;
+    letter-spacing: 0.02em;
+    background: linear-gradient(to right, #10b981, #34d399);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+
+  .loading-desc {
+    font-size: 0.95rem;
+    color: #a1a1aa;
+    max-width: 500px;
+    text-align: center;
+    line-height: 1.6;
+    padding: 0 20px;
+  }
+
+  .pulse-text {
+    animation: pulse 2s infinite;
+  }
+
+  @keyframes spin {
+    0% {
+      transform: rotate(0deg);
+    }
+    100% {
+      transform: rotate(360deg);
+    }
+  }
+
+  @keyframes pulse {
+    0% {
+      opacity: 0.6;
+    }
+    50% {
+      opacity: 1;
+    }
+    100% {
+      opacity: 0.6;
+    }
+  }
+
+  .sat-preview-img {
+    border-radius: 8px;
+    border: 1px solid #3f3f46;
+    transition: all 0.3s ease;
+  }
+
+  .sat-preview-img:hover {
+    border-color: #10b981;
+    box-shadow: 0 0 20px rgba(16, 185, 129, 0.15);
+  }
+
+  /* Fullscreen Native Styles */
+  #lightboxModal:fullscreen {
+    background-color: #000000 !important;
+  }
+  #lightboxModal:-webkit-full-screen {
+    background-color: #000000 !important;
+  }
+</style>
+
+<!-- Spinner Overlay -->
+<div id="loading-overlay">
+  <div class="loader-spinner"></div>
+  <h2 class="loading-title pulse-text">Procesando y Evaluando Área</h2>
+  <p class="loading-desc">
+    Estamos descargando los datos históricos (2018–2026) de Google Earth Engine
+    e iniciando el modelo de Deep Learning (Vision Transformer) para clasificar
+    las coberturas de suelo año por año.
+    <br /><strong class="text-white mt-2 d-block"
+      >Por favor, espera unos segundos.</strong
+    >
+  </p>
+</div>
+
+<div class="container py-5">
+  <!-- Cabecera -->
+  <div class="row mb-4">
+    <div class="col-12">
+      <nav aria-label="breadcrumb">
+        <ol class="breadcrumb">
+          <li class="breadcrumb-item">
+            <a href="{% url 'main' %}" class="text-success text-decoration-none"
+              >Inicio</a
+            >
+          </li>
+          <li class="breadcrumb-item active text-secondary" aria-current="page">
+            Vista Preliminar
+          </li>
+        </ol>
+      </nav>
+      <h1 class="fw-bold mt-2 text-white">
+        Vista Preliminar del Área de Estudio
+      </h1>
+      <p class="text-secondary">
+        Confirma las dimensiones y la captura multiespectral antes de iniciar el
+        análisis multitemporal.
+      </p>
+    </div>
+  </div>
+
+  <form id="previewForm" action="" method="post">
+    {% csrf_token %}
+
+    <input
+      class="d-none"
+      id="guardar"
+      name="guardar"
+      type="text"
+      value="1"
+      readonly
+    />
+    <input
+      class="d-none"
+      id="url"
+      name="url"
+      type="text"
+      value="{{ url }}"
+      readonly
+    />
+    <input
+      class="d-none"
+      name="tipoImagen"
+      type="text"
+      value="{{ tipoImagen_id }}"
+      readonly
+    />
+
+    <div class="row g-4">
+      <!-- Columna Izquierda: Ficha Técnica -->
+      <div class="col-lg-5">
+        <div class="preview-card h-100">
+          <div class="preview-card-header">
+            <h5 class="m-0 fw-bold text-white">Ficha Técnica</h5>
+          </div>
+          <div class="preview-card-body">
+            <!-- Título -->
+            <div class="mb-4">
+              <label class="form-label-custom" for="titulo"
+                >Título de área</label
+              >
+              <input
+                class="form-control form-control-custom"
+                id="titulo"
+                name="titulo"
+                type="text"
+                value="{{ titulo }}"
+                readonly
+              />
+            </div>
+
+            <!-- Satélite e Imagen Tipo -->
+            <div class="row g-3 mb-4">
+              <div class="col-6">
+                <label class="form-label-custom" for="satelite">Satélite</label>
+                <input
+                  class="form-control form-control-custom"
+                  id="satelite"
+                  name="satelite"
+                  type="text"
+                  value="{{ satelite }}"
+                  readonly
+                />
+              </div>
+              <div class="col-6">
+                <label class="form-label-custom" for="tipoImagen"
+                  >Tipo de visualización</label
+                >
+                <input
+                  class="form-control form-control-custom"
+                  id="tipoImagen"
+                  type="text"
+                  value="{{ tipoImagen_name }}"
+                  readonly
+                />
+              </div>
+            </div>
+
+            <!-- Rango Fechas -->
+            <div class="row g-3 mb-4">
+              <div class="col-6">
+                <label class="form-label-custom" for="fecha_inicio"
+                  >Fecha Inicio</label
+                >
+                <input
+                  class="form-control form-control-custom"
+                  id="fecha_inicio"
+                  name="fecha_inicio"
+                  type="text"
+                  value="{{ fecha_inicio }}"
+                  readonly
+                />
+              </div>
+              <div class="col-6">
+                <label class="form-label-custom" for="fecha_fin"
+                  >Fecha Fin</label
+                >
+                <input
+                  class="form-control form-control-custom"
+                  id="fecha_fin"
+                  name="fecha_fin"
+                  type="text"
+                  value="{{ fecha_fin }}"
+                  readonly
+                />
+              </div>
+            </div>
+
+            <!-- Dimensiones y Densidad inicial -->
+            <div class="row g-3 mb-4">
+              <div class="col-6">
+                <label class="form-label-custom" for="metros_cuadrados"
+                  >Área Total</label
+                >
+                <input
+                  class="form-control form-control-custom"
+                  id="metros_cuadrados"
+                  name="metros_cuadrados"
+                  type="text"
+                  value="{{ metros_cuadrados }}"
+                  readonly
+                />
+              </div>
+              <div class="col-6">
+                <label class="form-label-custom" for="porcentaje"
+                  >Vegetación NDVI (Ref)</label
+                >
+                <input
+                  class="form-control form-control-custom"
+                  id="porcentaje"
+                  name="porcentaje"
+                  type="text"
+                  value="{{ porcentaje }}%"
+                  readonly
+                />
+              </div>
+            </div>
+
+            <!-- Coordenadas Geometría (Texto compacto) -->
+            <div class="mb-4">
+              <label class="form-label-custom" for="geometria"
+                >Geometría del Polígono</label
+              >
+              <textarea
+                class="form-control form-control-custom font-monospace"
+                id="geometria"
+                name="geometria"
+                rows="3"
+                readonly
+                style="font-size: 0.8rem; resize: none"
+              >
+{{ geometria }}</textarea
+              >
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Columna Derecha: Imagen Preliminar y Acciones -->
+      <div class="col-lg-7">
+        <div
+          class="preview-card h-100 d-flex flex-column justify-content-between"
+        >
+          <div class="preview-card-header">
+            <h5 class="m-0 fw-bold text-white">
+              Visualización Satelital (Composición GEE)
+            </h5>
+          </div>
+          <div
+            class="preview-card-body d-flex flex-column justify-content-between h-100"
+          >
+            <div class="text-center mb-4">
+              {% if url %}
+              <div
+                class="position-relative d-inline-block"
+                onclick="openLightbox()"
+                style="cursor: zoom-in; min-height: 250px"
+              >
+                <!-- Image Loader Spinner -->
+                <div
+                  id="image-loader"
+                  class="position-absolute top-50 start-50 translate-middle d-flex flex-column align-items-center"
+                >
+                  <div
+                    class="spinner-border text-success"
+                    role="status"
+                    style="width: 2.5rem; height: 2.5rem"
+                  >
+                    <span class="visually-hidden">Cargando...</span>
+                  </div>
+                  <span
+                    class="text-secondary mt-2 small"
+                    style="font-size: 0.85rem"
+                    >Cargando composición satelital...</span
+                  >
+                </div>
+                <img
+                  id="sat-image"
+                  src="{{ url }}"
+                  class="img-fluid sat-preview-img"
+                  alt="Vista satelital del área"
+                  style="
+                    max-height: 400px;
+                    width: auto;
+                    object-fit: contain;
+                    opacity: 0;
+                    transition: opacity 0.3s ease;
+                  "
+                />
+              </div>
+              {% else %}
+              <div
+                class="d-flex align-items-center justify-content-center bg-dark text-secondary rounded"
+                style="height: 300px; border: 1px dashed #3f3f46"
+              >
+                <span>No se pudo cargar la imagen preliminar.</span>
+              </div>
+              {% endif %}
+            </div>
+
+            <!-- Acciones -->
+            <div
+              class="d-flex justify-content-end gap-3 mt-3 pt-3 border-top border-secondary-subtle"
+            >
+              <button
+                type="button"
+                class="btn btn-cancel"
+                onclick="discardPreview()"
+              >
+                Cancelar y Descartar
+              </button>
+              <button type="submit" class="btn btn-save">
+                Guardar e Iniciar Evaluación
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </form>
+</div>
+
+<!-- Fullscreen Lightbox Modal -->
+<div
+  class="modal fade"
+  id="lightboxModal"
+  tabindex="-1"
+  aria-hidden="true"
+  style="background-color: rgba(10, 10, 10, 0.95); z-index: 2000"
+>
+  <div
+    class="modal-dialog modal-dialog-centered modal-xl modal-fullscreen-lg-down"
+  >
+    <div
+      class="modal-content shadow-none border-0"
+      style="background-color: transparent"
+    >
+      <div
+        class="modal-header border-0 p-0 position-absolute top-0 end-0 m-4"
+        style="z-index: 2050"
+      >
+        <button
+          type="button"
+          class="btn-close btn-close-white"
+          data-bs-dismiss="modal"
+          aria-label="Cerrar"
+          style="
+            width: 2rem;
+            height: 2rem;
+            filter: drop-shadow(0px 2px 5px rgba(0, 0, 0, 0.5));
+          "
+        ></button>
+      </div>
+      <div
+        class="modal-body p-0 position-relative d-flex align-items-center justify-content-center"
+        style="height: 100vh; padding: 20px"
+      >
+        <img
+          src="{{ url }}"
+          class="rounded"
+          style="
+            width: 100%;
+            height: 92vh;
+            object-fit: contain;
+            box-shadow: 0 10px 50px rgba(0, 0, 0, 0.95);
+          "
+          alt="Vista satelital del área"
+        />
+        <div
+          class="position-absolute bottom-0 mb-4 text-center p-2 px-4 rounded-pill"
+          style="
+            background-color: rgba(20, 20, 20, 0.85);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            box-shadow: 0 5px 25px rgba(0, 0, 0, 0.5);
+            z-index: 10;
+          "
+        >
+          <span class="fw-bold text-success mr-2"
+            >Vista Satelital Preliminar</span
+          >
+          <span
+            class="text-light border-left pl-2 ml-2"
+            style="border-left: 1px solid rgba(255, 255, 255, 0.2) !important"
+            >Área: <strong class="text-white">{{ titulo }}</strong></span
+          >
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  // Show loading overlay on form submit
+  document
+    .getElementById("previewForm")
+    .addEventListener("submit", function () {
+      document.getElementById("loading-overlay").style.display = "flex";
+    });
+
+  // GEE Image loading spinner handler
+  document.addEventListener("DOMContentLoaded", function () {
+    const img = document.getElementById("sat-image");
+    const loader = document.getElementById("image-loader");
+    const zoomIcon = document.getElementById("zoom-icon-wrapper");
+    if (img && loader) {
+      if (img.complete) {
+        loader.remove();
+        img.style.opacity = "1";
+        if (zoomIcon) zoomIcon.style.opacity = "1";
+      } else {
+        img.addEventListener("load", function () {
+          loader.remove();
+          img.style.opacity = "1";
+          if (zoomIcon) zoomIcon.style.opacity = "1";
+        });
+        img.addEventListener("error", function () {
+          loader.innerHTML =
+            '<span class="text-danger small">Error al cargar la composición satelital GEE.</span>';
+        });
+      }
+    }
+  });
+
+  // Action for discarding preview
+  function discardPreview() {
+    document.getElementById("guardar").value = "0";
+    document.getElementById("previewForm").submit();
+  }
+
+  // Lightbox helper function
+  function openLightbox() {
+    const modalEl = document.getElementById("lightboxModal");
+    const myModal = new bootstrap.Modal(modalEl);
+    myModal.show();
+
+    // Request native fullscreen
+    if (modalEl.requestFullscreen) {
+      modalEl.requestFullscreen();
+    } else if (modalEl.webkitRequestFullscreen) {
+      modalEl.webkitRequestFullscreen();
+    } else if (modalEl.msRequestFullscreen) {
+      modalEl.msRequestFullscreen();
+    }
+  }
+
+  // Handle exiting native fullscreen (e.g. by pressing Esc)
+  document.addEventListener("fullscreenchange", function () {
+    if (!document.fullscreenElement) {
+      const modalEl = document.getElementById("lightboxModal");
+      const modalInstance = bootstrap.Modal.getInstance(modalEl);
+      if (modalInstance) {
+        modalInstance.hide();
+      }
+    }
+  });
+
+  // Handle closing modal manually (exit fullscreen if still active)
+  document.addEventListener("DOMContentLoaded", function () {
+    const modalEl = document.getElementById("lightboxModal");
+    modalEl.addEventListener("hidden.bs.modal", function () {
+      if (document.fullscreenElement) {
+        if (document.exitFullscreen) {
+          document.exitFullscreen();
+        } else if (document.webkitExitFullscreen) {
+          document.webkitExitFullscreen();
+        } else if (document.msExitFullscreen) {
+          document.msExitFullscreen();
+        }
+      }
+    });
+  });
+</script>
+{% endblock %}

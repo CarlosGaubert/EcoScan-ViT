@@ -1,0 +1,567 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<style>
+  html, body {
+    margin: 0;
+    padding: 0;
+    height: 100%;
+    width: 100%;
+    overflow: hidden;
+  }
+
+  .main-layout {
+    height: 100vh;
+    width: 100vw;
+    padding: 0;
+    margin: 0;
+    overflow: hidden;
+    background-color: #121212;
+  }
+
+  .sidebar-column {
+    height: 100vh;
+    overflow-y: auto;
+    background-color: #121212;
+    border-right: 1px solid #2d2d2d;
+    padding: 15px;
+  }
+
+  .sidebar-column .card {
+    background-color: #1e1e1e;
+    border: 1px solid #2d2d2d;
+    border-radius: 12px;
+    margin-bottom: 20px;
+    overflow: hidden;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.2);
+  }
+
+  .sidebar-column .card-header {
+    background-color: #1e1e1e;
+    border-bottom: 1px solid #2d2d2d;
+    padding: 0;
+  }
+
+  .sidebar-column .btn-acordeon {
+    color: #f4f4f5 !important;
+    font-weight: 600;
+    text-align: left;
+    width: 100%;
+    padding: 18px 20px;
+    text-decoration: none;
+    display: block;
+    transition: background-color 0.2s;
+  }
+
+  .sidebar-column .btn-acordeon:hover {
+    background-color: #2d2d2d;
+    color: #ffffff !important;
+  }
+
+  .sidebar-column .card-body {
+    background-color: #1e1e1e;
+    color: #e4e4e7;
+    padding: 25px;
+  }
+
+  .sidebar-column .form-control,
+  .sidebar-column select {
+    background-color: #121212;
+    border: 1px solid #3d3d3d;
+    color: #ffffff;
+    border-radius: 8px;
+    padding: 8px 12px;
+    height: 42px !important;
+    box-sizing: border-box;
+    width: 100%;
+  }
+
+  .sidebar-column input[type="file"].form-control {
+    height: auto !important;
+  }
+
+  .sidebar-column .form-control:focus {
+    background-color: #1e1e1e;
+    border-color: #5d5d5d;
+    color: #ffffff;
+    box-shadow: 0 0 0 0.25rem rgba(255, 255, 255, 0.1);
+  }
+
+  .sidebar-column .form-control[readonly] {
+    background-color: #0b0b0b;
+    border-color: #1e1e1e;
+    color: #71717a;
+    cursor: not-allowed;
+  }
+
+  .sidebar-column label {
+    color: #a1a1aa;
+    font-weight: 500;
+    margin-bottom: 6px;
+    margin-top: 0;
+    display: block;
+  }
+
+  .sidebar-column h4 {
+    color: #ffffff;
+    font-weight: 700;
+    margin-bottom: 10px;
+    margin-top: 10px;
+  }
+
+  .sidebar-column .btn-primary {
+    background-color: #27272a;
+    border-color: #3f3f46;
+    color: #ffffff;
+    font-weight: 600;
+    padding: 12px 16px;
+    transition: all 0.2s;
+    border-radius: 8px;
+    margin-top: 15px;
+  }
+
+  .sidebar-column .btn-primary:hover {
+    background-color: #3f3f46;
+    border-color: #52525b;
+    transform: translateY(-1px);
+  }
+
+  .map-column {
+    height: 100vh;
+    padding: 0 !important;
+    margin: 0 !important;
+    position: relative;
+  }
+
+  #map {
+    width: 100%;
+    height: 100%;
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    right: 0;
+  }
+
+  .map-overlay {
+    position: absolute;
+    top: 15px;
+    left: 15px;
+    z-index: 1;
+    display: flex;
+    gap: 15px;
+    align-items: center;
+  }
+
+  .map-overlay .mapboxgl-ctrl-geocoder {
+    width: 300px;
+    background-color: #1e1e1e;
+    border: 1px solid #2d2d2d;
+    border-radius: 8px;
+    box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.4);
+    margin: 0;
+  }
+
+  .draw-tools-panel {
+    display: flex;
+    gap: 2px;
+    background-color: #1e1e1e;
+    border: 1px solid #2d2d2d;
+    border-radius: 8px;
+    padding: 3px;
+    box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.4);
+  }
+
+  .draw-tools-panel .btn-tool {
+    background-color: transparent;
+    border: none;
+    color: #a1a1aa;
+    font-size: 0.85rem;
+    font-weight: 600;
+    padding: 8px 14px;
+    border-radius: 6px;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    transition: all 0.2s ease;
+  }
+
+  .draw-tools-panel .btn-tool:hover {
+    background-color: #27272a;
+    color: #ffffff;
+  }
+
+  .draw-tools-panel .btn-tool.active {
+    background-color: #27272a;
+    color: #10b981;
+  }
+
+  .draw-tools-panel .btn-tool-danger {
+    color: #ef4444;
+  }
+
+  .draw-tools-panel .btn-tool-danger:hover {
+    background-color: rgba(239, 68, 68, 0.15);
+    color: #ef4444;
+  }
+
+  .map-overlay .mapboxgl-ctrl-geocoder .mapboxgl-ctrl-geocoder--input {
+    padding: 12px 15px;
+    font-size: 14px;
+    color: #ffffff;
+    background-color: transparent;
+  }
+
+  .map-overlay .mapboxgl-ctrl-geocoder .mapboxgl-ctrl-geocoder--input::placeholder {
+    color: #71717a;
+  }
+
+  .map-overlay .mapboxgl-ctrl-geocoder .mapboxgl-ctrl-geocoder--button {
+    padding: 10px;
+    background-color: #2d2d2d;
+    border: none;
+    border-left: 1px solid #3d3d3d;
+    cursor: pointer;
+    color: #ffffff;
+  }
+
+  .mapboxgl-ctrl-geocoder input[type="text"] {
+    width: 100%;
+    padding: 12px;
+    font-size: 14px;
+  }
+
+  .Rent {
+    height: auto !important;
+  }
+
+  .btn-acordeon {
+    text-decoration: none;
+    outline: none;
+  }
+</style>
+
+<script src="https://unpkg.com/@turf/turf@6/turf.min.js"></script>
+<script src="https://api.mapbox.com/mapbox-gl-js/plugins/mapbox-gl-draw/v1.4.0/mapbox-gl-draw.js"></script>
+<script src="https://cdn.jsdelivr.net/gh/CartoDB/mapboxgl-draw-rectangle-drag/build/mapboxgl-draw-rectangle-drag.browser.js"></script>
+<link rel="stylesheet" href="https://api.mapbox.com/mapbox-gl-js/plugins/mapbox-gl-draw/v1.4.0/mapbox-gl-draw.css"
+  type="text/css">
+<div class="container-fluid main-layout">
+  <div class="row g-0 h-100">
+    <div class="col-sm-3 sidebar-column">
+
+
+
+      <div id="accordion">
+        <div class="card">
+          <div class="card-header" id="headingOne">
+            <h5 class="mb-0">
+              <button class="btn btn-link Rent btn-acordeon" data-toggle="collapse" data-target="#collapseOne"
+                aria-expanded="true" aria-controls="collapseOne">
+                Descarga de imágenes
+              </button>
+            </h5>
+          </div>
+
+          <div id="collapseOne" class="collapse show" aria-labelledby="headingOne" data-parent="#accordion">
+            <div class="card-body">
+
+              <!-- Contenido del primer formulario -->
+              <form action="" method="post" enctype="multipart/form-data">
+                {% csrf_token %}
+                {% if error_message %}
+                  <div class="alert alert-danger mb-4 p-3 rounded" style="background-color: #3b1717; border: 1px solid #7f1d1d; color: #fecaca; font-size: 0.85rem; margin-left: 1.5rem; margin-right: 1.5rem;">
+                    <div class="d-flex align-items-start">
+                      <svg class="mr-2 mt-1" style="flex-shrink: 0;" width="16" height="16" fill="currentColor" viewBox="0 0 20 20">
+                        <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clip-rule="evenodd"></path>
+                      </svg>
+                      <div>
+                        <strong class="font-weight-bold">Error:</strong> {{ error_message }}
+                      </div>
+                    </div>
+                  </div>
+                {% endif %}
+                <div class="row justify-content-between">
+
+                  <div class="col mx-4">
+                    <div class="my-5">
+                      <h4 class="Rent">Descarga de imágenes</h4>
+
+                    </div>
+                    <!-- Título -->
+                    <div class="mb-3">
+                      <label class="form-label fw-semibold" style="font-size: 0.85rem; color: #a1a1aa;" for="{{ form.titulo.id_for_label }}">{{ form.titulo.label }}</label>
+                      {{ form.titulo }}
+                      {% if form.titulo.errors %}
+                        <div class="text-danger mt-1" style="font-size: 0.85rem;">
+                          {% for error in form.titulo.errors %}{{ error }}{% endfor %}
+                        </div>
+                      {% endif %}
+                    </div>
+
+                    <!-- Geometria -->
+                    <div class="mb-3">
+                      <label class="form-label fw-semibold" style="font-size: 0.85rem; color: #a1a1aa;" for="{{ form.geometria.id_for_label }}">{{ form.geometria.label }}</label>
+                      {{ form.geometria }}
+                      {% if form.geometria.errors %}
+                        <div class="text-danger mt-1" style="font-size: 0.85rem;">
+                          {% for error in form.geometria.errors %}{{ error }}{% endfor %}
+                        </div>
+                      {% endif %}
+                    </div>
+
+                    <!-- Shapefiles -->
+                    <div class="mb-3">
+                      <label class="form-label fw-semibold" style="font-size: 0.85rem; color: #a1a1aa;" for="{{ form.shapefiles.id_for_label }}">{{ form.shapefiles.label }}</label>
+                      {{ form.shapefiles }}
+                      {% if form.shapefiles.errors %}
+                        <div class="text-danger mt-1" style="font-size: 0.85rem;">
+                          {% for error in form.shapefiles.errors %}{{ error }}{% endfor %}
+                        </div>
+                      {% endif %}
+                    </div>
+
+
+
+                    <!-- Metros Cuadrados -->
+                    <div class="mb-3">
+                      <label class="form-label fw-semibold" style="font-size: 0.85rem; color: #a1a1aa;" for="{{ form.metros_cuadrados.id_for_label }}">{{ form.metros_cuadrados.label }}</label>
+                      {{ form.metros_cuadrados }}
+                      {% if form.metros_cuadrados.errors %}
+                        <div class="text-danger mt-1" style="font-size: 0.85rem;">
+                          {% for error in form.metros_cuadrados.errors %}{{ error }}{% endfor %}
+                        </div>
+                      {% endif %}
+                    </div>
+
+                  </div>
+                </div>
+
+                <div class="row mx-2">
+                  <div class="col-md-12">
+                    <button type="submit" class="btn btn-primary btn-sm btn-block form-control ">Descargar
+                      Imágen</button>
+                  </div>
+                </div>
+              </form>
+
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header" id="headingTwo">
+            <h5 class="mb-0">
+              <button class="btn btn-link collapsed Rent btn-acordeon" data-toggle="collapse" data-target="#collapseTwo"
+                aria-expanded="false" aria-controls="collapseTwo">
+                Evaluar área de estudio
+              </button>
+            </h5>
+          </div>
+
+          <div id="collapseTwo" class="collapse" aria-labelledby="headingTwo" data-parent="#accordion">
+            <div class="card-body">
+
+              <!-- Contenido del segundo formulario -->
+              <form action="" method="post" enctype="multipart/form-data">
+                {% csrf_token %}
+                <div class="row justify-content-between">
+
+                  <div class="col mx-4">
+                    <div class="my-5">
+                      <h4>Evaluar área de estudio</h4>
+
+                    </div>
+                    {% for field in form_imagenes %}
+                      <div class="mb-3">
+                        <label class="form-label fw-semibold" style="font-size: 0.85rem; color: #a1a1aa;" for="{{ field.id_for_label }}">{{ field.label }}</label>
+                        {{ field }}
+                        {% if field.errors %}
+                          <div class="text-danger mt-1" style="font-size: 0.85rem;">
+                            {% for error in field.errors %}
+                              {{ error }}
+                            {% endfor %}
+                          </div>
+                        {% endif %}
+                      </div>
+                    {% endfor %}
+
+                  </div>
+                </div>
+
+                <div class="row mx-2">
+                  <div class="col-md-12">
+                    <button type="submit" class="btn btn-primary btn-sm btn-block form-control">Evaluar</button>
+                  </div>
+                </div>
+
+              </form>
+
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+    <div class="col-sm-9 map-column">
+      <div id="map">
+        <div class="map-overlay">
+          <!-- El geocodificador se inserta aquí dinámicamente -->
+          <div class="draw-tools-panel">
+            <button type="button" class="btn-tool active" id="btn-draw-rect" onclick="activateRectangleMode()" title="Dibujar Rectángulo/Cuadrado">
+              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor" class="bi bi-bounding-box-circles" viewBox="0 0 16 16">
+                <path d="M2 1a1 1 0 1 0 0 2 1 1 0 0 0 0-2zM0 2a2 2 0 0 1 3.937-.5h8.126A2 2 0 1 1 14.5 3.937v8.126a2 2 0 1 1-2.562 2.562H3.937A2 2 0 1 1 1.5 12.063V3.937A2 2 0 0 1 0 2zm3 2.5h10v10H3V4.5z"/>
+              </svg>
+              Rectángulo
+            </button>
+            <button type="button" class="btn-tool" id="btn-draw-poly" onclick="activatePolygonMode()" title="Dibujar Polígono Libre">
+              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor" class="bi bi-hexagon" viewBox="0 0 16 16">
+                <path d="M14 4.577v6.846L8 15l-6-3.577V4.577L8 1l6 3.577zM8.5.134a1 1 0 0 0-1 0l-6 3.577a1 1 0 0 0-.5.866v6.846a1 1 0 0 0 .5.866l6 3.577a1 1 0 0 0 1 0l6-3.577a1 1 0 0 0 .5-.866V4.577a1 1 0 0 0-.5-.866L8.5.134z"/>
+              </svg>
+              Polígono Libre
+            </button>
+            <button type="button" class="btn-tool btn-tool-danger" onclick="clearDrawing()" title="Limpiar Dibujo">
+              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor" class="bi bi-trash3" viewBox="0 0 16 16">
+                <path d="M11 1.5v1h3.5a.5.5 0 0 1 0 1h-.538l-.853 10.66A2 2 0 0 1 11.115 16h-6.23a2 2 0 0 1-1.994-1.84L2.038 3.5H1.5a.5.5 0 0 1 0-1H5v-1A1.5 1.5 0 0 1 6.5 0h3A1.5 1.5 0 0 1 11 1.5Zm-5 0v1h4v-1a.5.5 0 0 0-.5-.5h-3a.5.5 0 0 0-.5.5ZM4.5 5.029l.5 8.5a.5.5 0 1 0 .998-.06l-.5-8.5a.5.5 0 1 0-.998.06Zm6.53-.528a.5.5 0 0 0-.528.47l-.5 8.5a.5.5 0 0 0 .998.058l.5-8.5a.5.5 0 0 0-.47-.528ZM8 4.5a.5.5 0 0 0-.5.5v8.5a.5.5 0 0 0 1 0V5a.5.5 0 0 0-.5-.5Z"/>
+              </svg>
+              Limpiar
+            </button>
+          </div>
+        </div>
+      </div>
+      <div class="calculation-box d-none">
+        <p></p>
+        <div id="calculated-area"></div>
+      </div>
+        <script src="https://code.jquery.com/jquery-3.3.1.slim.min.js"></script>
+
+        <script src="https://stackpath.bootstrapcdn.com/bootstrap/4.3.1/js/bootstrap.min.js"></script>
+        <script>
+
+          $(document).ready(function () {
+            // Inicialización de Bootstrap (esta función es específica de Bootstrap 4)
+            $('[data-toggle="collapse"]').collapse();
+          });
+          mapboxgl.accessToken = '{{ MAPBOX_ACCESS_TOKEN }}';
+          const map = new mapboxgl.Map({
+            container: 'map', // container ID
+            // Choose from Mapbox's core styles, or make your own style with Mapbox Studio
+            style: 'mapbox://styles/kendito/clio59sp001f801p73zf4bt5p', // style URL
+            center: [-73.1132853, -36.7174998], // starting position
+            zoom: 13 // starting zoom
+          });
+
+          const draw = new MapboxDraw({
+            displayControlsDefault: false,
+            controls: {
+              trash: true
+            },
+            modes: {
+              ...MapboxDraw.modes,
+              'draw_rectangle': mapboxGLDrawRectangleDrag
+            },
+            defaultMode: 'draw_rectangle'
+          });
+
+          map.addControl(draw);
+
+          map.on('draw.create', updateArea);
+          map.on('draw.delete', updateArea);
+          map.on('draw.update', updateArea);
+
+          // Sincronizar botones visuales con los modos de Mapbox Draw
+          map.on('draw.modechange', function (e) {
+            if (e.mode === 'draw_rectangle') {
+              document.getElementById('btn-draw-rect').classList.add('active');
+              document.getElementById('btn-draw-poly').classList.remove('active');
+            } else if (e.mode === 'draw_polygon') {
+              document.getElementById('btn-draw-poly').classList.add('active');
+              document.getElementById('btn-draw-rect').classList.remove('active');
+            } else {
+              document.getElementById('btn-draw-rect').classList.remove('active');
+              document.getElementById('btn-draw-poly').classList.remove('active');
+            }
+          });
+
+          function activateRectangleMode() {
+            draw.changeMode('draw_rectangle');
+          }
+
+          function activatePolygonMode() {
+            draw.changeMode('draw_polygon');
+          }
+
+          function clearDrawing() {
+            draw.deleteAll();
+            updateArea();
+          }
+
+          function updateArea(e) {
+            const data = draw.getAll();
+            const answer = document.getElementById('calculated-area');
+            if (data.features.length > 0) {
+              const area = turf.area(data);
+              // Restrict the area to 2 decimal points.
+              const rounded_area = Math.round(area * 100) / 100;
+              answer.innerHTML = `<p><strong>${rounded_area}</strong></p><p>square meters</p>`;
+              document.getElementById("id_metros_cuadrados").value = rounded_area + " m²";
+              document.getElementById("id_geometria").value = JSON.stringify(data.features[0].geometry.coordinates[0]);
+            } else {
+              answer.innerHTML = '';
+              document.getElementById("id_geometria").value = "";
+              document.getElementById("id_metros_cuadrados").value = "";
+              if (e && e.type !== 'draw.delete') {
+                alert('Haz clic en el mapa para comenzar a dibujar.');
+              }
+            }
+          }
+
+          var geocoder = new MapboxGeocoder({
+            accessToken: mapboxgl.accessToken,
+            placeholder: 'Buscar ciudad o localidad',
+            mapboxgl: mapboxgl
+          });
+
+          document.querySelector('.map-overlay').appendChild(geocoder.onAdd(map));
+
+          // Manejar el evento de selección de un lugar del geocodificador
+          geocoder.on('result', function (e) {
+            var result = e.result;
+            map.flyTo({ center: result.center });
+          });
+
+
+
+
+          map.on('load', function () {
+
+            if (navigator.geolocation) {
+              navigator.geolocation.getCurrentPosition(function (position) {
+                var userLocation = [position.coords.longitude, position.coords.latitude];
+                //llenar latitud y longitud
+                //document.getElementById("id_latitud").value = position.coords.latitude
+                //document.getElementById("id_longitud").value = position.coords.longitude
+                map.flyTo({ center: userLocation });
+
+              });
+            } else {
+              console.log('La geolocalización no es soportada por este navegador.');
+            }
+          });
+
+          document.getElementById("id_shapefiles").onchange = function (evt) {
+            document.getElementById("id_geometria").value = "Shapefile cargado."
+          }
+
+        </script>
+      </div>
+    </div>
+  </div>
+
+
+
+
+
+
+
+{% endblock %}
