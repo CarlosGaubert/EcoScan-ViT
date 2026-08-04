@@ -11,7 +11,7 @@ geometry = ee.Geometry.Polygon(
 task = ee.batch.Export.table.toDrive(
     collection=ee.FeatureCollection(geometry),
     description='nombre_del_shapefile',
-    folder='./TesisGaubert/',
+    folder='./EcoScan-ViT/',
     fileFormat='SHP')
 
 # Inicia la tarea de exportación

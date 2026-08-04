@@ -19,7 +19,7 @@ from dotenv import load_dotenv
 class CustomFormRenderer(TemplatesSetting):
     form_template_name = 'form_snippet.html'
 
-FORM_RENDERER = "tesisgaubert.settings.CustomFormRenderer"
+FORM_RENDERER = "ecoscan_vit.settings.CustomFormRenderer"
 
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -63,7 +63,7 @@ MIDDLEWARE = [
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
 
-ROOT_URLCONF = 'tesisgaubert.urls'
+ROOT_URLCONF = 'ecoscan_vit.urls'
 
 TEMPLATES = [
     {
@@ -82,7 +82,7 @@ TEMPLATES = [
     },
 ]
 
-WSGI_APPLICATION = 'tesisgaubert.wsgi.application'
+WSGI_APPLICATION = 'ecoscan_vit.wsgi.application'
 
 
 # Database

@@ -1,4 +1,4 @@
-# Sistema de Monitoreo de Cobertura Forestal y Análisis Multitemporal
+# EcoScan-ViT: Sistema de Monitoreo de Cobertura Forestal y Análisis Multitemporal
 
 [![Python](https://img.shields.io/badge/Python-3.9+-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
 [![Django](https://img.shields.io/badge/Django-4.2-092E20?style=for-the-badge&logo=django&logoColor=white)](https://www.djangoproject.com/)
@@ -126,8 +126,8 @@ Asegúrate de contar con las siguientes herramientas instaladas en tu sistema op
 #### 1. Clonar el repositorio y acceder
 
 ```bash
-git clone https://github.com/CarlosGaubertQ/TesisGaubertMapas.git
-cd TesisGaubertMapas
+git clone https://github.com/CarlosGaubert/EcoScan-ViT.git
+cd EcoScan-ViT
 ```
 
 #### 2. Crear y activar el entorno virtual
