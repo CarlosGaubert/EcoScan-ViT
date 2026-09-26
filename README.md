@@ -35,7 +35,7 @@ graph TD
 
 ## ✨ Características Principales
 
-- **Interfaz de Mapa Interactiva (Mapbox GL):** Equipado con herramientas de dibujo espacial (`Mapbox Draw`), un geocodificador para búsquedas rápidas de direcciones y soporte nativo para el trazado de polígonos complejos.
+- **Interfaz de Mapa Interactiva (Google Earth Engine / Google Maps API):** Replicando fielmente la interfaz de Google Earth Engine Code Editor, con selector de capas (Mapa con relieve / Satélite), barra de herramientas de dibujo espacial (Mano, Marcador, Línea, Polígono, Rectángulo), visualización de la capa `geometry` y buscador de localidades con autocompletado.
 - **Carga de Datos Vectoriales (Shapefile):** Permite subir archivos vectoriales en formato comprimido (`.zip`) conteniendo las extensiones obligatorias de un shapefile (`.shp`, `.shx`, `.dbf`). El backend parsea la geometría y la proyecta automáticamente sobre el mapa interactivo.
 - **Integración Robusta con GEE:** Descarga imágenes multiespectrales directamente de los almacenes satelitales en la nube:
   - **Sentinel-2:** Filtrado con máscaras de nubes dinámicas (`S2_CLOUD_PROBABILITY`) y procesamiento del borde de escena para remover píxeles defectuosos.
@@ -63,7 +63,7 @@ El ecosistema tecnológico está compuesto por librerías especializadas en cien
 | **Manipulación Vectorial**  | `geopandas`, `shapely`    | Cálculo de centroides, envolturas convexas, áreas de cobertura e intersección de grillas.    |
 | **Visión por Computadora**  | `opencv-python`           | Preprocesamiento de matrices de imágenes, normalización de contraste y codificación de PNGs. |
 | **Automatización de Drive** | `pydrive2`                | Control de flujos de carga y descarga de imágenes desde Google Drive.                        |
-| **Frontend**                | Bootstrap 5, Mapbox GL JS | Estructura responsiva, mapa interactivo y visualización premium con tema oscuro.             |
+| **Frontend**                | Bootstrap 5, Google Maps JavaScript API (GEE Interface) | Estructura responsiva, mapa interactivo y visualización idéntica a Google Earth Engine con tema oscuro.             |
 
 ---
 
@@ -104,7 +104,7 @@ Para mantener el proyecto organizado y facilitar su mantenimiento, los archivos 
 El proyecto cuenta con un sistema de seguridad endurecido que evita la filtración accidental de secretos o claves API en repositorios públicos de GitHub o plataformas cloud:
 
 - **Variables de Entorno (.env):** Toda la información sensible como la `SECRET_KEY` de Django, las configuraciones de `DEBUG` y las direcciones en `ALLOWED_HOSTS` han sido extraídas del código y se cargan dinámicamente mediante la librería `python-dotenv`.
-- **Procesador de Contexto para APIs:** El token de Mapbox GL JS (`MAPBOX_ACCESS_TOKEN`) se inyecta dinámicamente desde el backend en las plantillas HTML a través de un procesador de contexto personalizado (`mapas/context_processors.py`), eliminando cualquier rastro de la clave en el código estático.
+- **Procesador de Contexto para APIs:** La clave de Google Maps API (`GOOGLE_MAPS_API_KEY`) se inyecta dinámicamente desde el backend en las plantillas HTML a través de un procesador de contexto personalizado (`mapas/context_processors.py`), eliminando cualquier rastro de la clave en el código estático.
 - **Control de Versiones Seguro (.gitignore):** Se configuraron exclusiones para la base de datos SQLite local (`db.sqlite3`), las credenciales de la API de Google Drive (`client_secrets.json`, `mycreds.txt`), las carpetas de datos temporales (`shapefiles/`, `imagenes/descargas/`), archivos temporales ráster (`.tif`) y directorios de caché de Python y entornos virtuales (`venv/`).
 
 ---
@@ -162,7 +162,7 @@ El proyecto utiliza variables de entorno para aislar claves y configuraciones cr
    ```bash
    cp .env.example .env
    ```
-2. Abre el archivo `.env` creado y configura tus claves personalizadas (como tu `SECRET_KEY` de Django y tu `MAPBOX_ACCESS_TOKEN` para la visualización del mapa).
+2. Abre el archivo `.env` creado y configura tus claves personalizadas (como tu `SECRET_KEY` de Django y opcionalmente tu `GOOGLE_MAPS_API_KEY` para la visualización del mapa).
 
 #### 6. Configuración de API de Google Drive (`client_secrets.json`)
 
@@ -187,7 +187,7 @@ Una vez iniciado, abre tu navegador e ingresa a **`http://127.0.0.1:8000/`** par
 
 ## 🔍 Pipeline de Clasificación de Bosques
 
-1.  **Detección de Geometría:** El sistema toma las coordenadas del polígono (ya sea de Mapbox o del archivo Shapefile) y las procesa usando `shapely`.
+1.  **Detección de Geometría:** El sistema toma las coordenadas del polígono (ya sea del mapa interactivo de GEE o del archivo Shapefile) y las procesa usando `shapely`.
 2.  **Exportación Asíncrona (GEE):** Se define la colección satelital para cada año de la serie temporal (2018–2026), se extraen las bandas necesarias, se genera un compuesto de mediana corregida por nubes/bordes y se envía una tarea de exportación (`ee.batch.Export.image.toDrive`) a Google Drive.
 3.  **Descarga Automática:** El backend realiza un sondeo continuo (polling) hasta que la tarea en GEE finaliza, tras lo cual utiliza la API de Google Drive para ubicar y descargar el archivo GeoTIFF a la carpeta local del servidor.
 4.  **Inferencia ViT (PyTorch):**

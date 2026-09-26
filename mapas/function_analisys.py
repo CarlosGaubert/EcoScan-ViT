@@ -26,7 +26,10 @@ from pydrive.drive import GoogleDrive
 import time
 
 def export_rectangle_to_drive(Rectangle, name_file, start_date, end_date):
-    ee.Initialize()
+    try:
+        ee.Initialize(project=os.getenv('EE_PROJECT_ID', 'proyecto-forest-2026'))
+    except Exception:
+        ee.Initialize()
     """
     Exports the envelope of a geometry from a shapefile to Google Drive.
 
@@ -45,11 +48,19 @@ def export_rectangle_to_drive(Rectangle, name_file, start_date, end_date):
     # Define the image collection for Sentinel-2 and filter by the region
     collection = ee.ImageCollection('COPERNICUS/S2_HARMONIZED') \
         .filterDate(start_date, end_date) \
-        .filter(ee.Filter.lt('CLOUDY_PIXEL_PERCENTAGE', 20)) \
-        .filterBounds(region)
+        .filterBounds(region) \
+        .sort('CLOUDY_PIXEL_PERCENTAGE', True)
 
-    # Get the first image from the collection
-    image = collection.median().select(['B4', 'B3', 'B2'])  # RGB bands for Sentinel-2
+    # Filtrar imágenes limpias con menos de 20% si están disponibles
+    collection_clean = collection.filter(ee.Filter.lt('CLOUDY_PIXEL_PERCENTAGE', 20))
+    try:
+        if collection_clean.size().getInfo() > 0:
+            collection = collection_clean
+    except Exception:
+        pass
+
+    # Usar las escenas con menor cobertura de nubes para el compuesto
+    image = collection.limit(5).median().select(['B4', 'B3', 'B2'])  # RGB bands for Sentinel-2
 
     # Define export parameters
     task_config = {

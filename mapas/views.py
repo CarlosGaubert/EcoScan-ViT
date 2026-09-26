@@ -1,6 +1,7 @@
 
 import base64
 import io
+from datetime import datetime, timedelta
 from django.shortcuts import render
 import requests
 from mapas.forms import DescargaImagenForm, ImagenesDescargadasForm
@@ -24,170 +25,245 @@ import shutil
 
 
 
-def maps(request):
-  
-  if request.method == 'POST':
-
+def inicializar_earth_engine():
+  """
+  Inicializa la conexión con Google Earth Engine usando el proyecto activo.
+  Si las credenciales OAuth expiraron (RefreshError / invalid_grant), lanza un error amigable.
+  """
+  try:
+    project_id = os.getenv('EE_PROJECT_ID', 'proyecto-forest-2026')
     try:
-      
-      print(request.POST)
-      id_imagen = request.POST.get('imagenes')
+      ee.Initialize(project=project_id)
+    except Exception:
+      ee.Initialize()
+  except Exception as e:
+    err_str = str(e)
+    if 'invalid_grant' in err_str or 'RefreshError' in err_str or 'credentials' in err_str.lower():
+      raise RuntimeError(
+        'Las credenciales de Google Earth Engine han expirado (invalid_grant). '
+        'Por favor abre una terminal en el servidor y ejecuta "./venv/bin/earthengine authenticate" '
+        'para renovar tu sesión con Google.'
+      ) from e
+    raise
 
-      imagen = ImagenSatelital.objects.get(pk=id_imagen)
 
-      subimagenes = SubImagenSatelital.objects.filter(imagen=imagen).order_by('anio_imagen')
-      decrecimiento_forestal = []
-      años = []
-      for subimagen in subimagenes:
-        print(f"agregando imagen año {subimagen.anio_imagen} con porcentaje: {subimagen.porcentaje}")
-        decrecimiento_forestal.append(float(subimagen.porcentaje))
-        años.append(int(subimagen.anio_imagen))
-      print(decrecimiento_forestal)
-      
-      # Evitar crasheo si la imagen está corrupta o no tiene subimágenes en base de datos
-      if len(decrecimiento_forestal) == 0:
+def maps(request):
+  if request.method == 'POST':
+    print(request.POST)
+
+    # CASO 1: Evaluar área de estudio existente (Formulario 2)
+    id_imagen = request.POST.get('imagenes')
+    if id_imagen and id_imagen.strip():
+      try:
+        imagen = ImagenSatelital.objects.get(pk=id_imagen)
+        subimagenes = SubImagenSatelital.objects.filter(imagen=imagen).order_by('anio_imagen')
+        decrecimiento_forestal = []
+        años = []
+        for subimagen in subimagenes:
+          print(f"agregando imagen año {subimagen.anio_imagen} con porcentaje: {subimagen.porcentaje}")
+          decrecimiento_forestal.append(float(subimagen.porcentaje))
+          años.append(int(subimagen.anio_imagen))
+        print(decrecimiento_forestal)
+
+        if len(decrecimiento_forestal) == 0:
           form = DescargaImagenForm()
           form_imagenes = ImagenesDescargadasForm()
           return render(
-              request, 
-              'maps.html',
-              {'form': form,
-               'form_imagenes': form_imagenes,
-               'error_message': 'El área de estudio seleccionada no posee análisis anuales válidos en la base de datos.'}
+            request, 
+            'maps.html',
+            {
+              'form': form,
+              'form_imagenes': form_imagenes,
+              'error_message': 'El área de estudio seleccionada no posee análisis anuales válidos en la base de datos.'
+            }
           )
-      imagen_satelital = ImagenSatelital.objects.get(pk=id_imagen)
-      print(f"{imagen_satelital.name}")
-   
-      
 
+        plt.figure(figsize=(8, 6))
+        plt.plot(años, decrecimiento_forestal, marker='o', color='b', linestyle='-', linewidth=2, markersize=8)
+        plt.title('Decrecimiento Forestal por Año')
+        plt.xlabel('Año')
+        plt.ylabel('Porcentaje de Decrecimiento')
+        plt.grid(True)
+        plt.xticks(años, rotation=45) 
 
-      plt.figure(figsize=(8, 6))
-      plt.plot(años, decrecimiento_forestal, marker='o', color='b', linestyle='-', linewidth=2, markersize=8)
-      plt.title('Decrecimiento Forestal por Año')
-      plt.xlabel('Año')
-      plt.ylabel('Porcentaje de Decrecimiento')
-      plt.grid(True)
-      plt.xticks(años, rotation=45) 
+        buffer = io.BytesIO()
+        plt.savefig(buffer, format='png')
+        buffer.seek(0)
+        plt.close()
 
-     
-      buffer = io.BytesIO()
-      plt.savefig(buffer, format='png')
-      buffer.seek(0)
-      plt.close()
+        imagen_base64 = base64.b64encode(buffer.read()).decode()
+        min_year = subimagenes.first().anio_imagen if subimagenes.exists() else ""
+        max_year = subimagenes.last().anio_imagen if subimagenes.exists() else ""
 
-      imagen_base64 = base64.b64encode(buffer.read()).decode()
-
-
-      min_year = subimagenes.first().anio_imagen if subimagenes.exists() else ""
-      max_year = subimagenes.last().anio_imagen if subimagenes.exists() else ""
-
-      contexto = {
+        contexto = {
           'imagen_base64': imagen_base64,
           'subimagenes': subimagenes,
-          'imagen_satelital': imagen_satelital,
+          'imagen_satelital': imagen,
           'min_year': min_year,
           'max_year': max_year,
-      }
-      return render(
-        request,
-        'evaluacion.html',
-        contexto
-      
-      )
-    except Exception as e:
-      print(f"ERROR : {e}")
-   
-      if request.POST.get('guardar') == '1':
-        
-        #guardar imagen en la base de datos
-        tipo_imagen, _ = Tipo_Imagen.objects.get_or_create(name='True color')
-        satelite, _ = Satelite.objects.get_or_create(name='Sentinel-2')
-        titulo = request.POST.get('titulo')
-        
-        imagen = ImagenSatelital.objects.create(
-            name=titulo,
-            coordenadas=request.POST.get('geometria'),
-            satelite=satelite,
-            tipo_imagen=tipo_imagen,
+        }
+        return render(request, 'evaluacion.html', contexto)
+
+      except Exception as eval_err:
+        print(f"Error al evaluar área de estudio: {eval_err}")
+        form = DescargaImagenForm()
+        form_imagenes = ImagenesDescargadasForm()
+        return render(
+          request,
+          'maps.html',
+          {
+            'form': form,
+            'form_imagenes': form_imagenes,
+            'error_message': f'Error al consultar el área de estudio: {eval_err}'
+          }
         )
 
-        imagen.save()
-        
+    # CASO 2: Confirmar o Cancelar el guardado tras previsualizar imagen
+    if request.POST.get('guardar') == '1':
+      tipo_imagen, _ = Tipo_Imagen.objects.get_or_create(name='True color')
+      satelite, _ = Satelite.objects.get_or_create(name='Sentinel-2')
+      titulo = request.POST.get('titulo')
+
+      imagen = ImagenSatelital.objects.create(
+        name=titulo,
+        coordenadas=request.POST.get('geometria'),
+        satelite=satelite,
+        tipo_imagen=tipo_imagen,
+      )
+      imagen.save()
+
+      try:
+        calcular_porcentaje_bosques(request, imagen.pk)
+      except Exception as eval_error:
+        imagen.delete()
+        print(f"ERROR durante la evaluación multitemporal: {eval_error}")
+        form = DescargaImagenForm()
+        form_imagenes = ImagenesDescargadasForm()
+        return render(
+          request, 
+          'maps.html',
+          {
+            'form': form,
+            'form_imagenes': form_imagenes,
+            'error_message': f'La evaluación satelital multitemporal falló: {eval_error}. Se canceló el guardado del área.'
+          }
+        )
+
+      form = DescargaImagenForm()
+      form_imagenes = ImagenesDescargadasForm()
+      return render(request, 'maps.html', {'form': form, 'form_imagenes': form_imagenes})
+
+    elif request.POST.get('guardar') == '0':
+      form = DescargaImagenForm()
+      form_imagenes = ImagenesDescargadasForm()
+      return render(request, 'maps.html', {'form': form, 'form_imagenes': form_imagenes})
+
+    # CASO 3: Descarga y Procesamiento Inicial de Imagen Satelital (Formulario 1)
+    else:
+      form = DescargaImagenForm(request.POST, request.FILES)
+      form_imagenes = ImagenesDescargadasForm()
+
+      raw_geom = request.POST.get('geometria')
+      if not raw_geom or not raw_geom.strip():
+        return render(
+          request, 
+          'maps.html',
+          {
+            'form': form,
+            'form_imagenes': form_imagenes,
+            'error_message': 'No has seleccionado un área de estudio. Por favor dibuja un rectángulo o polígono en el mapa (esquina superior izquierda) o sube un archivo Shapefile (.zip).'
+          }
+        )
+
+      geometria = None
+      if raw_geom == 'Shapefile cargado.':
         try:
-          calcular_porcentaje_bosques(request, imagen.pk)
-        except Exception as eval_error:
-          imagen.delete()
-          print(f"ERROR durante la evaluación: {eval_error}")
-          form = DescargaImagenForm()
-          form_imagenes = ImagenesDescargadasForm()
+          for uploaded_file in request.FILES.getlist('shapefiles'):
+            handle_uploaded_file(uploaded_file)
+          shp_file = get_shp_file(request.FILES.getlist('shapefiles'))
+          if not shp_file:
+            raise ValueError('No se encontró un archivo con extensión .shp dentro del archivo comprimido subido.')
+          geoms = process_shapefile("./shapefiles/temp/" + str(shp_file))
+          for sq in geoms:
+            xx, yy = sq.exterior.coords.xy
+            x = xx.tolist()
+            y = yy.tolist()
+          geometria = list(zip(x, y))
+        except Exception as shp_err:
+          print(f"Error procesando shapefile: {shp_err}")
           return render(
-              request, 
-              'maps.html',
-              {'form': form,
-               'form_imagenes': form_imagenes,
-               'error_message': f'La evaluación satelital falló: {eval_error}. Se canceló el guardado del área.'}
+            request, 
+            'maps.html',
+            {
+              'form': form,
+              'form_imagenes': form_imagenes,
+              'error_message': f'Error al procesar el archivo Shapefile: {shp_err}'
+            }
+          )
+      else:
+        try:
+          geometria = json.loads(raw_geom)
+        except Exception as json_err:
+          print(f"Error decodificando geometría: {json_err}")
+          return render(
+            request, 
+            'maps.html',
+            {
+              'form': form,
+              'form_imagenes': form_imagenes,
+              'error_message': 'El formato de las coordenadas recibidas no es válido. Vuelve a trazar el polígono en el mapa.'
+            }
           )
 
-        form = DescargaImagenForm()
-        form_imagenes = ImagenesDescargadasForm()
+      if not geometria or len(geometria) < 3:
         return render(
-            request, 
-            'maps.html',
-            {'form': form,
-            'form_imagenes': form_imagenes}
+          request, 
+          'maps.html',
+          {
+            'form': form,
+            'form_imagenes': form_imagenes,
+            'error_message': 'El polígono trazado debe tener al menos 3 vértices para delimitar una región geográfica.'
+          }
         )
-      elif request.POST.get('guardar') == '0':
-        form = DescargaImagenForm()
-        form_imagenes = ImagenesDescargadasForm()
-        return render(
-            request, 
-            'maps.html',
-            {'form': form,
-            'form_imagenes': form_imagenes}
-        )
-      else: 
-        
-        try:
-          geometria = json.loads(request.POST.get('geometria'))
-          
-        except Exception as e:
-          pass
-        
-        satelite, _ = Satelite.objects.get_or_create(name='Sentinel-2')
-        tipoImagen, _ = Tipo_Imagen.objects.get_or_create(name='True color')
-        fecha_inicio = request.POST.get('fecha_inicio')
-        fecha_fin = request.POST.get('fecha_fin')
-        porcentaje= 0
-        if( request.POST.get('geometria') == 'Shapefile cargado.'):
-        #determinar si existen archivos subidos
-          try:
-            for uploaded_file in request.FILES.getlist('shapefiles'):
-              handle_uploaded_file(uploaded_file)
-            shp_file = get_shp_file(request.FILES.getlist('shapefiles'))
-            
-            geoms = process_shapefile("./shapefiles/temp/" + str(shp_file))
-            for sq in geoms:
-              xx, yy = sq.exterior.coords.xy
-              x = xx.tolist()
-              y = yy.tolist()
-            geometria = list(zip(x,y))
-            
-          except Exception as e:
-            # Manejo de excepciones genéricas (captura cualquier excepción no manejada anteriormente)
-            print(f"Error: {e}")
 
+      satelite, _ = Satelite.objects.get_or_create(name='Sentinel-2')
+      tipoImagen, _ = Tipo_Imagen.objects.get_or_create(name='True color')
+
+      try:
         geo_path = crear_archivo_shapefile(geometria)
         print(f"Generando archivo shapefile en {geo_path}")
-        
-        
 
-        url, capture_date = descargar_imagen_sentinel(geometria, None, None, tipoImagen, 1500)
+        url, capture_date, cloud_pct = descargar_imagen_sentinel(geometria, None, None, tipoImagen, 1500)
         porcentaje = calcular_porcentaje_bosque(geometria)
+
+      except Exception as gee_err:
+        print(f"ERROR durante la descarga satelital Sentinel: {gee_err}")
+        err_str = str(gee_err)
+        if 'invalid_grant' in err_str or 'RefreshError' in err_str or 'credentials' in err_str.lower():
+          err_msg = (
+            'Error de autenticación con Google Earth Engine (sesión expirada). '
+            'Por favor ejecuta "./venv/bin/earthengine authenticate" en tu terminal para reconectar tu cuenta de Google.'
+          )
+        elif 'Collection is empty' in err_str or 'image is empty' in err_str:
+          err_msg = 'No se encontraron capturas satelitales Sentinel-2 sin nubes para el polígono seleccionado.'
+        else:
+          err_msg = f'No fue posible obtener la imagen desde Google Earth Engine: {gee_err}'
 
         return render(
           request, 
-          'visualizar_imagen.html',
-          {'url': url, 
+          'maps.html',
+          {
+            'form': form,
+            'form_imagenes': form_imagenes,
+            'error_message': err_msg
+          }
+        )
+
+      return render(
+        request, 
+        'visualizar_imagen.html',
+        {
+          'url': url, 
           'geometria': request.POST.get('geometria'),
           'satelite': satelite.name,
           'tipoImagen_name': tipoImagen.name,
@@ -196,19 +272,19 @@ def maps(request):
           'fecha_fin': capture_date,
           'metros_cuadrados': request.POST.get('metros_cuadrados'),
           'titulo': request.POST.get('titulo'),
-          'porcentaje': porcentaje
-          }
-        )
- 
+          'porcentaje': porcentaje,
+          'cloud_pct': cloud_pct
+        }
+      )
+
   else:
     form = DescargaImagenForm()
     form_imagenes = ImagenesDescargadasForm()
     return render(
-        request, 
-        'maps.html',
-        {'form': form,
-         'form_imagenes': form_imagenes}
-      )
+      request, 
+      'maps.html',
+      {'form': form, 'form_imagenes': form_imagenes}
+    )
   
 
 def vista_satelite(request, url):
@@ -237,7 +313,7 @@ def descargar_imagen_landsat8(geometry, fecha_inicio, fecha_fin, tipoImagen):
   elif tipoImagen.name == 'Urban':
     band = ['B7', 'B6', 'B4']
   # Inicializar la API de Google Earth Engine
-  ee.Initialize()
+  inicializar_earth_engine()
 
   # Definir la geometría
   geometry = ee.Geometry.Polygon(
@@ -246,10 +322,10 @@ def descargar_imagen_landsat8(geometry, fecha_inicio, fecha_fin, tipoImagen):
   IMGLandsat8 = ee.ImageCollection('LANDSAT/LC08/C02/T1_RT_TOA') \
       .filterDate(fecha_inicio, fecha_fin) \
       .filterBounds(geometry) \
-      .filterMetadata('CLOUD_COVER', 'less_than', 20)
+      .sort('CLOUD_COVER', True)
 
-  # Obtener la imagen mediana
-  Landsat8Filtro = IMGLandsat8.median()
+  # Obtener la imagen con menor nubosidad (compuesto de las escenas más despejadas)
+  Landsat8Filtro = IMGLandsat8.limit(5).median()
 
   # Recortar la imagen con la geometría
   Landsat8Clip = Landsat8Filtro.clip(geometry)
@@ -276,7 +352,7 @@ def descargar_imagen_landsat7(geometry, fecha_inicio, fecha_fin, tipoImagen):
   elif tipoImagen.name == 'Urban':
     band = ['B7', 'B5', 'B3']
   # Inicializar la API de Google Earth Engine
-  ee.Initialize()
+  inicializar_earth_engine()
 
   # Definir la geometría
   geometry = ee.Geometry.Polygon(
@@ -315,17 +391,32 @@ def descargar_imagen_sentinel(geometry, fecha_inicio=None, fecha_fin=None, tipoI
   elif tipoImagen.name == 'Urban':
     band = ['B12', 'B11', 'B4']
   
-  # Inicializar la API de Google Earth Engine
-  ee.Initialize()
+  # Inicializar la API de Google Earth Engine con manejo de sesión
+  inicializar_earth_engine()
 
   # Definir la geometría
-  geometry = ee.Geometry.Polygon(
-    [geometry], None, False);
+  geometry = ee.Geometry.Polygon([geometry], None, False)
 
   collection = ee.ImageCollection('COPERNICUS/S2_HARMONIZED') \
-      .filterBounds(geometry) \
-      .filter(ee.Filter.lt('CLOUDY_PIXEL_PERCENTAGE', 20)) \
-      .sort('system:time_start', False)
+      .filterBounds(geometry)
+
+  # Filtrar por fecha si se especificó un rango
+  if fecha_inicio and fecha_fin and fecha_inicio != fecha_fin:
+    collection = collection.filterDate(fecha_inicio, fecha_fin)
+  else:
+    # Priorizar imágenes de los últimos 180 días para mantener actualidad
+    now = datetime.now()
+    hace_180_dias = (now - timedelta(days=180)).strftime('%Y-%m-%d')
+    hoy = now.strftime('%Y-%m-%d')
+    recent_col = collection.filterDate(hace_180_dias, hoy)
+    try:
+      if recent_col.size().getInfo() > 0:
+        collection = recent_col
+    except Exception:
+      pass
+
+  # Ordenar de menor a mayor porcentaje de nubes para obtener la escena con menor nubosidad
+  collection = collection.sort('CLOUDY_PIXEL_PERCENTAGE', True)
 
   image = collection.first()
 
@@ -333,34 +424,50 @@ def descargar_imagen_sentinel(geometry, fecha_inicio=None, fecha_fin=None, tipoI
     date_str = ee.Date(image.get('system:time_start')).format('YYYY-MM-DD').getInfo()
   except Exception as e:
     print(f"Error getting image date: {e}")
-    date_str = "2026-07-19"
+    date_str = datetime.now().strftime('%Y-%m-%d')
+
+  try:
+    cloud_pct = image.get('CLOUDY_PIXEL_PERCENTAGE').getInfo()
+    cloud_pct_str = f"{cloud_pct:.2f}" if cloud_pct is not None else "0.00"
+  except Exception:
+    cloud_pct_str = "0.00"
 
   datasetClip = image.clip(geometry)
-  imagenRGB = datasetClip.visualize(**{'min': 0,'max': 3200, 'bands': band})
+  imagenRGB = datasetClip.visualize(**{'min': 0, 'max': 3200, 'bands': band})
   extension = 'png'
 
-  url = imagenRGB.getThumbURL({ 'region': geometry, 'dimensions': dimension, 'format': extension })
+  url = imagenRGB.getThumbURL({'region': geometry, 'dimensions': dimension, 'format': extension})
   
-  return url, date_str
+  return url, date_str, cloud_pct_str
    
 def calcular_porcentaje_bosque(geometry, fecha_inicio=None, fecha_fin=None):
-    # Inicializar la API de Google Earth Engine
-    ee.Initialize()
+    # Inicializar la API de Google Earth Engine con manejo de sesión
+    inicializar_earth_engine()
 
-    geometry = ee.Geometry.Polygon(
-    geometry);
+    geometry = ee.Geometry.Polygon([geometry], None, False)
 
     # Filtrar la colección Sentinel-2 Harmonized
     collection = ee.ImageCollection('COPERNICUS/S2_HARMONIZED') \
-        .filterBounds(geometry) \
-        .filter(ee.Filter.lt('CLOUDY_PIXEL_PERCENTAGE', 20))
+        .filterBounds(geometry)
 
     if fecha_inicio and fecha_fin and fecha_inicio != fecha_fin:
         collection = collection.filterDate(fecha_inicio, fecha_fin)
     else:
-        collection = collection.sort('system:time_start', False)
+        # Priorizar imágenes de los últimos 180 días
+        now = datetime.now()
+        hace_180_dias = (now - timedelta(days=180)).strftime('%Y-%m-%d')
+        hoy = now.strftime('%Y-%m-%d')
+        recent_col = collection.filterDate(hace_180_dias, hoy)
+        try:
+            if recent_col.size().getInfo() > 0:
+                collection = recent_col
+        except Exception:
+            pass
 
-    # Obtener la imagen de la colección
+    # Ordenar por menor porcentaje de nubes (ascendente) para usar la imagen más despejada
+    collection = collection.sort('CLOUDY_PIXEL_PERCENTAGE', True)
+
+    # Obtener la imagen con menor nubosidad de la colección
     sentinel_image = collection.first()
 
     # Calcular el NDVI usando las bandas B8 y B4 de Sentinel-2
@@ -377,8 +484,11 @@ def calcular_porcentaje_bosque(geometry, fecha_inicio=None, fecha_fin=None):
         scale=10  # Resolución espacial de Sentinel-2
     )
 
-    total_area = geometry.area()
-    porcentaje_bosque = area_bosque.getInfo()['nd'] / total_area.getInfo()
+    total_area = geometry.area(1)
+    info_area = area_bosque.getInfo()
+    val_bosque = info_area.get('nd', 0) if info_area else 0
+    total_val = total_area.getInfo()
+    porcentaje_bosque = (val_bosque / total_val) if total_val and total_val > 0 else 0
     resultado = round(porcentaje_bosque * 100, 2)
     return "{:.2f}".format(resultado)
 
@@ -467,7 +577,7 @@ from pydrive.drive import GoogleDrive
 import time
 
 def export_rectangle_to_drive(Rectangle, name_file, start_date, end_date):
-    ee.Initialize()
+    inicializar_earth_engine()
     """
     Exports the envelope of a geometry from a shapefile to Google Drive.
 
@@ -485,12 +595,20 @@ def export_rectangle_to_drive(Rectangle, name_file, start_date, end_date):
 
     # Define the image collection for Sentinel-2 and filter by the region
     collection = ee.ImageCollection('COPERNICUS/S2_HARMONIZED') \
-        .filterDate(start_date,end_date) \
-        .filter(ee.Filter.lt('CLOUDY_PIXEL_PERCENTAGE', 20)) \
-        .filterBounds(region)
+        .filterDate(start_date, end_date) \
+        .filterBounds(region) \
+        .sort('CLOUDY_PIXEL_PERCENTAGE', True)
 
-    # Get the first image from the collection
-    image = collection.median().select(['B4', 'B3', 'B2'])  # RGB bands for Sentinel-2
+    # Filtrar imágenes limpias con menos de 20% si están disponibles
+    collection_clean = collection.filter(ee.Filter.lt('CLOUDY_PIXEL_PERCENTAGE', 20))
+    try:
+        if collection_clean.size().getInfo() > 0:
+            collection = collection_clean
+    except Exception:
+        pass
+
+    # Usar las escenas con menor cobertura de nubes para el compuesto
+    image = collection.limit(5).median().select(['B4', 'B3', 'B2'])  # RGB bands for Sentinel-2
 
     # Define export parameters
     task_config = {

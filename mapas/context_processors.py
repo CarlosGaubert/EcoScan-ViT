@@ -1,10 +1,10 @@
 import os
 
-def mapbox_token(request):
+def google_maps_api_key(request):
     """
-    Inyecta el token de Mapbox desde las variables de entorno (.env)
+    Inyecta la clave de Google Maps API desde las variables de entorno (.env)
     a todas las plantillas HTML del sistema de forma global.
     """
     return {
-        'MAPBOX_ACCESS_TOKEN': os.getenv('MAPBOX_ACCESS_TOKEN', '')
+        'GOOGLE_MAPS_API_KEY': os.getenv('GOOGLE_MAPS_API_KEY', '')
     }

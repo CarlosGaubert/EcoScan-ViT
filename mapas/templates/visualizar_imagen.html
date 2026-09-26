@@ -350,6 +350,28 @@
               </div>
             </div>
 
+            <!-- Nubosidad en la Escena -->
+            <div class="row g-3 mb-4">
+              <div class="col-12">
+                <label class="form-label-custom" for="cloud_pct"
+                  ><i class="bi bi-cloud-sun text-info me-1"></i> Nubosidad en Escena (Menor % de nubes)</label
+                >
+                <div class="input-group">
+                  <input
+                    class="form-control form-control-custom"
+                    id="cloud_pct"
+                    name="cloud_pct"
+                    type="text"
+                    value="{{ cloud_pct }}%"
+                    readonly
+                  />
+                  <span class="input-group-text bg-dark border-secondary text-success fw-bold">
+                    <i class="bi bi-shield-check me-1"></i> Escena con menor nubosidad
+                  </span>
+                </div>
+              </div>
+            </div>
+
             <!-- Coordenadas Geometría (Texto compacto) -->
             <div class="mb-4">
               <label class="form-label-custom" for="geometria"
