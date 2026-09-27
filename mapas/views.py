@@ -1,27 +1,65 @@
 
 import base64
 import io
-from datetime import datetime, timedelta
-from django.shortcuts import render
-import requests
-from mapas.forms import DescargaImagenForm, ImagenesDescargadasForm
-from .models import ImagenSatelital, Satelite, Tipo_Imagen, SubImagenSatelital
-import json
-import ee
-from django.core.files.base import ContentFile
-import geopandas as gpd
 import os
-from django.conf import settings
-import numpy as np  
-from shapely.geometry import MultiPolygon, Polygon, LineString
-from shapely.ops import split
+import time
+import json
+import shutil
+import uuid
+import threading
+from datetime import datetime, timedelta
 from io import BytesIO
+
+from django.shortcuts import render, redirect, get_object_or_404
+from django.http import JsonResponse, HttpResponseRedirect
+from django.contrib import messages
+from django.db import connection
+from django.core.files.base import ContentFile
+from django.conf import settings
+
+import requests
+import numpy as np  
+import geopandas as gpd
+from shapely.geometry import MultiPolygon, Polygon, LineString, mapping
+from shapely.ops import split
+import rasterio
+from rasterio.features import geometry_mask
+from PIL import Image
+import cv2
+import torch
+from torch import nn
+import torch.nn.functional as F
+import torchvision
+from torchvision import models, transforms
+from pydrive.auth import GoogleAuth
+from pydrive.drive import GoogleDrive
 
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
-import shutil
+import ee
+from mapas.forms import DescargaImagenForm, ImagenesDescargadasForm
+from .models import ImagenSatelital, Satelite, Tipo_Imagen, SubImagenSatelital
+
+# Diccionario thread-safe para rastreo de progreso de evaluación
+PROGRESS_LOCK = threading.Lock()
+EVAL_PROGRESS = {}
+
+def update_progress(task_id, progress, step, detail="", status="running", id_imagen=None, error_message=None):
+    """Actualiza de forma atómica el estado y progreso porcentual de una tarea de evaluación."""
+    with PROGRESS_LOCK:
+        if task_id not in EVAL_PROGRESS:
+            EVAL_PROGRESS[task_id] = {}
+        EVAL_PROGRESS[task_id].update({
+            'progress': progress,
+            'current_step': step,
+            'detail': detail,
+            'status': status,
+            'id_imagen': id_imagen,
+            'error_message': error_message,
+            'updated_at': time.time()
+        })
 
 
 
@@ -54,75 +92,13 @@ def maps(request):
     # CASO 1: Evaluar área de estudio existente (Formulario 2)
     id_imagen = request.POST.get('imagenes')
     if id_imagen and id_imagen.strip():
-      try:
-        imagen = ImagenSatelital.objects.get(pk=id_imagen)
-        subimagenes = SubImagenSatelital.objects.filter(imagen=imagen).order_by('anio_imagen')
-        decrecimiento_forestal = []
-        años = []
-        for subimagen in subimagenes:
-          print(f"agregando imagen año {subimagen.anio_imagen} con porcentaje: {subimagen.porcentaje}")
-          decrecimiento_forestal.append(float(subimagen.porcentaje))
-          años.append(int(subimagen.anio_imagen))
-        print(decrecimiento_forestal)
-
-        if len(decrecimiento_forestal) == 0:
-          form = DescargaImagenForm()
-          form_imagenes = ImagenesDescargadasForm()
-          return render(
-            request, 
-            'maps.html',
-            {
-              'form': form,
-              'form_imagenes': form_imagenes,
-              'error_message': 'El área de estudio seleccionada no posee análisis anuales válidos en la base de datos.'
-            }
-          )
-
-        plt.figure(figsize=(8, 6))
-        plt.plot(años, decrecimiento_forestal, marker='o', color='b', linestyle='-', linewidth=2, markersize=8)
-        plt.title('Decrecimiento Forestal por Año')
-        plt.xlabel('Año')
-        plt.ylabel('Porcentaje de Decrecimiento')
-        plt.grid(True)
-        plt.xticks(años, rotation=45) 
-
-        buffer = io.BytesIO()
-        plt.savefig(buffer, format='png')
-        buffer.seek(0)
-        plt.close()
-
-        imagen_base64 = base64.b64encode(buffer.read()).decode()
-        min_year = subimagenes.first().anio_imagen if subimagenes.exists() else ""
-        max_year = subimagenes.last().anio_imagen if subimagenes.exists() else ""
-
-        contexto = {
-          'imagen_base64': imagen_base64,
-          'subimagenes': subimagenes,
-          'imagen_satelital': imagen,
-          'min_year': min_year,
-          'max_year': max_year,
-        }
-        return render(request, 'evaluacion.html', contexto)
-
-      except Exception as eval_err:
-        print(f"Error al evaluar área de estudio: {eval_err}")
-        form = DescargaImagenForm()
-        form_imagenes = ImagenesDescargadasForm()
-        return render(
-          request,
-          'maps.html',
-          {
-            'form': form,
-            'form_imagenes': form_imagenes,
-            'error_message': f'Error al consultar el área de estudio: {eval_err}'
-          }
-        )
+      return redirect('vista_evaluacion', id_imagen=id_imagen)
 
     # CASO 2: Confirmar o Cancelar el guardado tras previsualizar imagen
     if request.POST.get('guardar') == '1':
       tipo_imagen, _ = Tipo_Imagen.objects.get_or_create(name='True color')
       satelite, _ = Satelite.objects.get_or_create(name='Sentinel-2')
-      titulo = request.POST.get('titulo')
+      titulo = request.POST.get('titulo') or 'Área de Estudio'
 
       imagen = ImagenSatelital.objects.create(
         name=titulo,
@@ -149,14 +125,10 @@ def maps(request):
           }
         )
 
-      form = DescargaImagenForm()
-      form_imagenes = ImagenesDescargadasForm()
-      return render(request, 'maps.html', {'form': form, 'form_imagenes': form_imagenes})
+      return redirect('vista_evaluacion', id_imagen=imagen.pk)
 
     elif request.POST.get('guardar') == '0':
-      form = DescargaImagenForm()
-      form_imagenes = ImagenesDescargadasForm()
-      return render(request, 'maps.html', {'form': form, 'form_imagenes': form_imagenes})
+      return redirect('main')
 
     # CASO 3: Descarga y Procesamiento Inicial de Imagen Satelital (Formulario 1)
     else:
@@ -295,11 +267,162 @@ def vista_satelite(request, url):
   )
 
 def evaluacion(request):
-   print(request.POST)
-   return render(
-     request,
-     'evaluacion.html',
-   )
+    return redirect('main')
+
+def vista_evaluacion(request, id_imagen):
+    """
+    Renderiza la vista detallada de evaluación multitemporal para un área de estudio específica.
+    Genera el gráfico Matplotlib de decrecimiento forestal y prepara el carrusel de imágenes.
+    """
+    imagen = get_object_or_404(ImagenSatelital, pk=id_imagen)
+    subimagenes = SubImagenSatelital.objects.filter(imagen=imagen).order_by('anio_imagen')
+    decrecimiento_forestal = []
+    años = []
+    for subimagen in subimagenes:
+        try:
+            decrecimiento_forestal.append(float(subimagen.porcentaje))
+            años.append(int(subimagen.anio_imagen))
+        except (ValueError, TypeError):
+            continue
+
+    if len(decrecimiento_forestal) == 0:
+        try:
+            messages.error(request, f"El área de estudio '{imagen.name}' no posee análisis anuales válidos en la base de datos.")
+        except Exception:
+            pass
+        return redirect('main')
+
+    plt.figure(figsize=(8, 6))
+    plt.plot(años, decrecimiento_forestal, marker='o', color='b', linestyle='-', linewidth=2, markersize=8)
+    plt.title('Decrecimiento Forestal por Año')
+    plt.xlabel('Año')
+    plt.ylabel('Porcentaje de Decrecimiento')
+    plt.grid(True)
+    plt.xticks(años, rotation=45)
+
+    buffer = io.BytesIO()
+    plt.savefig(buffer, format='png')
+    buffer.seek(0)
+    plt.close()
+
+    imagen_base64 = base64.b64encode(buffer.read()).decode()
+    min_year = subimagenes.first().anio_imagen if subimagenes.exists() else ""
+    max_year = subimagenes.last().anio_imagen if subimagenes.exists() else ""
+
+    contexto = {
+        'imagen_base64': imagen_base64,
+        'subimagenes': subimagenes,
+        'imagen_satelital': imagen,
+        'min_year': min_year,
+        'max_year': max_year,
+    }
+    return render(request, 'evaluacion.html', contexto)
+
+def ejecutar_evaluacion_async(task_id, pk_imagen):
+    """Ejecuta la evaluación en un hilo en segundo plano y maneja la sesión de base de datos."""
+    try:
+        calcular_porcentaje_bosques(None, pk_imagen, task_id=task_id)
+    except Exception as err:
+        print(f"Error en ejecución asíncrona: {err}")
+        try:
+            ImagenSatelital.objects.filter(pk=pk_imagen).delete()
+        except Exception:
+            pass
+        update_progress(
+            task_id, 0,
+            "Error en la evaluación multitemporal",
+            str(err),
+            status="error",
+            error_message=str(err)
+        )
+    finally:
+        connection.close()
+
+def iniciar_evaluacion(request):
+    """
+    Endpoint AJAX para iniciar la evaluación multitemporal con barra de progreso en tiempo real.
+    Crea el registro de ImagenSatelital e inicia el hilo de procesamiento con ViT.
+    """
+    if request.method != 'POST':
+        return JsonResponse({'error': 'Método no permitido'}, status=405)
+
+    titulo = request.POST.get('titulo') or 'Área Sin Título'
+    geometria = request.POST.get('geometria')
+
+    if not geometria:
+        return JsonResponse({'error': 'No se recibieron coordenadas de geometría.'}, status=400)
+
+    try:
+        tipo_imagen, _ = Tipo_Imagen.objects.get_or_create(name='True color')
+        satelite, _ = Satelite.objects.get_or_create(name='Sentinel-2')
+
+        imagen = ImagenSatelital.objects.create(
+            name=titulo,
+            coordenadas=geometria,
+            satelite=satelite,
+            tipo_imagen=tipo_imagen,
+        )
+
+        task_id = uuid.uuid4().hex
+        update_progress(
+            task_id, 1, 
+            "Iniciando evaluación multitemporal...", 
+            "Conectando servicios de Google Drive y Earth Engine...", 
+            id_imagen=imagen.pk
+        )
+
+        thread = threading.Thread(
+            target=ejecutar_evaluacion_async,
+            args=(task_id, imagen.pk),
+            daemon=True
+        )
+        thread.start()
+
+        return JsonResponse({'task_id': task_id, 'id_imagen': imagen.pk})
+    except Exception as e:
+        return JsonResponse({'error': str(e)}, status=500)
+
+def progreso_evaluacion(request, task_id):
+    """Endpoint AJAX para consultar el porcentaje y estado actual de la evaluación."""
+    with PROGRESS_LOCK:
+        info = EVAL_PROGRESS.get(task_id)
+    if not info:
+        return JsonResponse({'status': 'unknown', 'progress': 0, 'current_step': 'Buscando tarea...'}, status=404)
+    return JsonResponse(info)
+
+def eliminar_area(request, id_imagen):
+    """
+    Elimina permanentemente un área de estudio y sus subimágenes asociadas de la base de datos y disco.
+    """
+    if request.method != 'POST':
+        return redirect('main')
+
+    imagen = get_object_or_404(ImagenSatelital, pk=id_imagen)
+    nombre = imagen.name
+    try:
+        subimagenes = SubImagenSatelital.objects.filter(imagen=imagen)
+        for sub in subimagenes:
+            if sub.subImagen:
+                try:
+                    if os.path.isfile(sub.subImagen.path):
+                        os.remove(sub.subImagen.path)
+                except Exception:
+                    pass
+        imagen.delete()
+        try:
+            messages.success(request, f"El área de estudio '{nombre}' fue eliminada permanentemente.")
+        except Exception:
+            pass
+    except Exception as err:
+        try:
+            messages.error(request, f"Error al eliminar el área de estudio '{nombre}': {err}")
+        except Exception:
+            pass
+
+    if request.headers.get('x-requested-with') == 'XMLHttpRequest' or 'application/json' in request.headers.get('Accept', ''):
+        return JsonResponse({'success': True, 'message': f"Área '{nombre}' eliminada con éxito."})
+
+    return redirect('main')
 
 def descargar_imagen_landsat8(geometry, fecha_inicio, fecha_fin, tipoImagen):
   band = ['B4', 'B3', 'B2']
@@ -549,32 +672,7 @@ def eliminar_contenido_carpeta(carpeta_a_eliminar ):
 #################################################################################################
 
 
-import numpy as np
-from shapely.ops import split
-import geopandas as gpd
-from shapely.geometry import MultiPolygon, Polygon, LineString
-import ee
-import requests
-import os
-import geopandas as gpd
-import matplotlib.pyplot as plt
-from matplotlib.offsetbox import OffsetImage, AnnotationBbox
-import shutil
-import torchvision
-import rasterio
-import rasterio.plot
-import matplotlib.pyplot as plt
-import cv2
-from rasterio.features import geometry_mask
-from shapely.geometry import mapping
-from torchvision import models, transforms
-import torch.nn.functional as F  # Import functional interface
-from PIL import Image
-from torch import nn
-import torch
-from pydrive.auth import GoogleAuth
-from pydrive.drive import GoogleDrive
-import time
+
 
 def export_rectangle_to_drive(Rectangle, name_file, start_date, end_date):
     inicializar_earth_engine()
@@ -666,7 +764,10 @@ def extract_patch_from_masked_data(red_clip, green_clip, blue_clip, mask):
 
     return red_patch, green_patch, blue_patch
 
-def calcular_porcentaje_bosques(request, pk_imagen):
+def calcular_porcentaje_bosques(request, pk_imagen, task_id=None):
+    if task_id:
+        update_progress(task_id, 2, "Iniciando autenticación y servicios...", "Verificando conexión con Google Drive y Earth Engine...")
+
     # Autenticación con almacenamiento de credenciales para evitar loguearse cada vez
     gauth = GoogleAuth()
     try:
@@ -691,30 +792,34 @@ def calcular_porcentaje_bosques(request, pk_imagen):
 
     # Crear un objeto de GoogleDrive utilizando la autenticación
     drive = GoogleDrive(gauth)
-    
+
+    if task_id:
+        update_progress(task_id, 6, "Sincronizando almacenamiento temporal...", "Limpiando directorio en Google Drive...")
 
     id_carpeta = '1TvcWff-3Qt-U7WFuzRDRRbnP3UHHezVB'
 
-    archivos_en_carpeta = drive.ListFile({'q': f"'{id_carpeta}' in parents and trashed=false"}).GetList()
+    try:
+        archivos_en_carpeta = drive.ListFile({'q': f"'{id_carpeta}' in parents and trashed=false"}).GetList()
+        for archivo in archivos_en_carpeta:
+            try:
+                archivo.Delete()
+                print(f"Archivo '{archivo['title']}' eliminado correctamente.")
+            except Exception:
+                pass
+    except Exception as clean_err:
+        print(f"Aviso al limpiar carpeta en Drive: {clean_err}")
 
-    for archivo in archivos_en_carpeta:
-        try:
-            archivo.Delete()
-            print(f"Archivo '{archivo['title']}' eliminado correctamente.")
-        except:
-            print(f"No se pudo eliminar el archivo '{archivo['title']}'.")
-
-    print("Archivos en la carpeta eliminados correctamente.")
-
-    
-    # obtener geometria
+    # Obtener geometría
     geo_filepath = "./shapefiles/generated/nombre_shapefile.shp"
     GeoDF = gpd.read_file(geo_filepath)
     G = np.random.choice(GeoDF.geometry.values)
     Rectangle = G.envelope
     
-    # Call the function
     fechas_dict = [2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025, 2026]
+    total_anios = len(fechas_dict)
+
+    if task_id:
+        update_progress(task_id, 12, f"Enviando {total_anios} tareas a Google Earth Engine...", "Iniciando exportación multitemporal (2018-2026)...")
 
     tasks = []
     for i, fecha in enumerate(fechas_dict):
@@ -724,23 +829,29 @@ def calcular_porcentaje_bosques(request, pk_imagen):
         task = export_rectangle_to_drive(Rectangle, name_file=name_file, start_date=start_date, end_date=end_date)
         tasks.append(task)
 
-    # Poll all tasks dynamically
-    for i, task in enumerate(tasks):
-        while task.active():
-            print("Polling for task {}/{} (id: {}).".format(i+1, len(tasks), task.id))
-            time.sleep(10)
-            status = check_task_status(task)
-            print(status)
+    # Monitorear tareas en Google Earth Engine (Progreso: 15% a 40%)
+    while True:
+        completed_tasks = sum(1 for t in tasks if not t.active())
+        if task_id:
+            pct_gee = 15 + int((completed_tasks / total_anios) * 25)
+            update_progress(
+                task_id, pct_gee,
+                f"Procesando en Google Earth Engine ({completed_tasks}/{total_anios} años listos)...",
+                "Componiendo escenas satelitales Sentinel-2 con mínima nubosidad..."
+            )
+        if completed_tasks == total_anios:
+            break
+        time.sleep(5)
 
-    
-    #Calcular division de geometrias
+    # Calcular división de geometrías
+    if task_id:
+        update_progress(task_id, 40, "Dividiendo área en parches espaciales...", "Generando cuadrícula de muestreo para IA...")
+
     rect_coords = np.array(Rectangle.boundary.coords.xy)
     y_list = rect_coords[1]
     x_list = rect_coords[0]
-    y1 = min(y_list)
-    y2 = max(y_list)
-    x1 = min(x_list)
-    x2 = max(x_list)
+    y1, y2 = min(y_list), max(y_list)
+    x1, x2 = min(x_list), max(x_list)
     width = x2 - x1
     height = y2 - y1
     xcells = int(width * 100)
@@ -748,7 +859,7 @@ def calcular_porcentaje_bosques(request, pk_imagen):
     yindices = np.linspace(y1, y2, ycells + 3)
     xindices = np.linspace(x1, x2, xcells + 5)
     horizontal_splitters = [
-    LineString([(x, yindices[0]), (x, yindices[-1])]) for x in xindices
+        LineString([(x, yindices[0]), (x, yindices[-1])]) for x in xindices
     ]
     vertical_splitters = [
         LineString([(xindices[0], y), (xindices[-1], y)]) for y in yindices
@@ -756,154 +867,117 @@ def calcular_porcentaje_bosques(request, pk_imagen):
     result = Rectangle
     for splitter in vertical_splitters:
         result = MultiPolygon(split(result, splitter))
-
     for splitter in horizontal_splitters:
         result = MultiPolygon(split(result, splitter))
     square_polygons = list(result.geoms)
-    SquareGeoDF  = gpd.GeoDataFrame(square_polygons).rename(columns={0: "geometry"})
     SquareGeoDF = gpd.GeoDataFrame(square_polygons)
-
     SquareGeoDF = SquareGeoDF.set_geometry(0)
 
     Geoms = SquareGeoDF[SquareGeoDF.intersects(G)].geometry.values
-    shape = "square"
     thresh = 0.9
 
-    if shape == "rhombus":
-        geoms = [g for g in Geoms if ((g.intersection(G)).area / g.area) >= thresh]
-    elif shape == "square":
-        geoms = [g for g in Geoms if ((g.intersection(G)).area / g.area) >= thresh]
-    
-    class_id_to_label = {
-        0: "ann_crop",
-        1: "forest",
-        2: "herb_veg",
-        3: "highway",
-        4: "industrial",
-        5: "pasture",
-        6: "perm_crop",
-        7: "residential",
-        8: "river",
-        9: "sea_lake"
-    }
-    class_id_to_color = {
-        0: (0, 0, 255),  # Red
-        1: (0, 143, 57),  # Blue
-        2: (0, 255, 0),  # Green
-        3: (0, 255, 255),  # Yellow
-        4: (0, 165, 255),  # Orange
-        5: (128, 0, 128),  # Purple
-        6: (145, 176, 255),  # Cyan
-        7: (255, 0, 255),  # Magenta
-        8: (128, 0, 0),  # Brown
-        9: (235, 206, 135)  # Lime
-    }
-    # Setup device agnostic code
+    geoms = [g for g in Geoms if ((g.intersection(G)).area / g.area) >= thresh]
+    if len(geoms) == 0:
+        geoms = Geoms
+
+    # Configuración del modelo ViT
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    # Load Model
     path = './models/ViT_Satellite.pth'
-    # 1. Get pretrained weights for ViT-Base
-    model_weights = torchvision.models.ViT_B_16_Weights.DEFAULT # requires torchvision >= 0.13, "DEFAULT" means best available
-
-
-    # Get automatic transforms from pretrained ViT weights
+    model_weights = torchvision.models.ViT_B_16_Weights.DEFAULT
     transform_im = model_weights.transforms()
-    print(transform_im)
-
-    # 2. Setup a ViT model instance with pretrained weights
     model = torchvision.models.vit_b_16(weights=model_weights).to(device)
-
-
-    # 3. Freeze the base parameters
     for parameter in model.parameters():
         parameter.requires_grad = False
-
-    # 4. Change the classifier head (set the seeds to ensure same initialization with linear head)
     model.heads = nn.Linear(in_features=768, out_features=10).to(device)
     model.load_state_dict(torch.load(path, map_location='cpu'))
 
-    # Usage
+    # Descarga de rasters desde Drive (Progreso: 40% a 50%)
+    os.makedirs('imagenes/descargas', exist_ok=True)
     for i, fecha in enumerate(fechas_dict):
+        if task_id:
+            pct_dl = 40 + int(((i + 1) / total_anios) * 10)
+            update_progress(
+                task_id, pct_dl,
+                f"Descargando imágenes satelitales ({i+1}/{total_anios})...",
+                f"Descargando GeoTIFF del año {fecha}..."
+            )
         file_id = get_file_id_by_name(f'RectangleExport_{i+1}.tif', drive)
+        if file_id:
+            downloaded = drive.CreateFile({'id': file_id})
+            downloaded.GetContentFile(f'imagenes/descargas/downloaded_image_{i+1}.tif')
 
-        downloaded = drive.CreateFile({'id': file_id})
-        os.makedirs('imagenes/descargas', exist_ok=True)
-        downloaded.GetContentFile(f'imagenes/descargas/downloaded_image_{i+1}.tif')
-    for i, fecha in enumerate(fechas_dict):
+    # Inferencia con IA Parche por Parche (Progreso: 50% a 95%)
+    total_parches = len(geoms)
+    total_evaluaciones = total_anios * total_parches
+    evaluacion_idx = 0
+
+    imagen = ImagenSatelital.objects.get(pk=pk_imagen)
+    satelite, _ = Satelite.objects.get_or_create(name='Sentinel-2')
+    titulo = request.POST.get('titulo') if request else imagen.name
+
+    for year_idx, fecha in enumerate(fechas_dict):
         model.eval()
-
         bboxes = []
-        with rasterio.open(f'imagenes/descargas/downloaded_image_{i+1}.tif') as src:
-            # Read the RGB bands
+        tif_path = f'imagenes/descargas/downloaded_image_{year_idx+1}.tif'
+        if not os.path.exists(tif_path):
+            continue
+
+        with rasterio.open(tif_path) as src:
             red = src.read(1)
             green = src.read(2)
             blue = src.read(3)
             transform = src.transform
-            
-
             full_mask = np.zeros_like(red, dtype=bool)
             forest = 0
-            
-            for i, polygon in enumerate(geoms):
-                
-                # Convert to pixel coordinates
+
+            for patch_idx, polygon in enumerate(geoms):
+                evaluacion_idx += 1
+                if task_id:
+                    pct_ia = 50 + int((evaluacion_idx / total_evaluaciones) * 45)
+                    patch_pct_year = int(((patch_idx + 1) / total_parches) * 100)
+                    update_progress(
+                        task_id, pct_ia,
+                        f"Analizando con IA (ViT): Año {fecha} - Parche {patch_idx + 1}/{total_parches} ({patch_pct_year}%)",
+                        f"Inferencia neuronal ({evaluacion_idx}/{total_evaluaciones} parches clasificados)..."
+                    )
+
                 pixel_polygon = [~transform * (x, y) for x, y in polygon.exterior.coords]
-                
-                # Create a mask for the polygon
                 geojson_polygon = mapping(polygon)
                 mask = geometry_mask([geojson_polygon], transform=transform, invert=True, out_shape=src.shape)
                 full_mask = np.logical_or(full_mask, mask)
-                
+
                 red_clip = src.read(1) * mask
                 green_clip = src.read(2) * mask
                 blue_clip = src.read(3) * mask
 
                 red_patch, green_patch, blue_patch = extract_patch_from_masked_data(red_clip, green_clip, blue_clip, mask)
-
                 pixel_shapely_polygon = Polygon(pixel_polygon)
                 x1, y1, x2, y2 = pixel_shapely_polygon.bounds
-                x1 = int(x1)
-                y1 = int(y1)
-                x2 = int(x2)
-                y2 = int(y2)
-                
+                x1, y1, x2, y2 = int(x1), int(y1), int(x2), int(y2)
+
                 bands_8bit = []
-                for band_name in [red_patch, green_patch, blue_patch]:
-                    band_data = band_name
-                    min_val = 0
-                    max_val = 3200
+                for band_data in [red_patch, green_patch, blue_patch]:
+                    band_data = band_data
+                    min_val, max_val = 0, 3200
                     band_8bit = ((band_data - min_val) / (max_val - min_val)) * 255
                     band_8bit = np.clip(band_8bit, 0, 255).round().astype(np.uint8)
                     bands_8bit.append(band_8bit)
-
                 data_8bit = np.stack(bands_8bit, axis=-1)
 
-                # Inference
-
                 pil_image = Image.fromarray(data_8bit)
-                tensor_im  = transform_im(pil_image).unsqueeze(0)
+                tensor_im = transform_im(pil_image).unsqueeze(0)
 
                 with torch.no_grad():
                     outputs = model(tensor_im.to(device))
-                    
-                    # Convert raw output scores to probabilities
                     probabilities = F.softmax(outputs, dim=1)
-                    
-                    # Get the predicted class and its probability
                     _, preds = torch.max(outputs, 1)
                     pred_class = preds.item()
                     pred_prob = probabilities[0][pred_class].item()
-
                     bboxes.append([pred_class, pred_prob, x1, y1, x2, y2])
-
-                    #print(f"Predicted class: {class_id_to_label[pred_class]}, clase:{pred_class} , x1: {x1}, y1: {y1}, x2:{x2}, y2:{y2}, shape image: {(x2-x1, y2-y1)}")
-
                     if pred_class == 1:
                         forest += 1
-                
-            # Save or visualize the clipped image
 
-            # Apply the mask to the RGB bands
+            # Generar y guardar subimagen del año
             red_masked = np.where(full_mask, red, 0)
             green_masked = np.where(full_mask, green, 0)
             blue_masked = np.where(full_mask, blue, 0)
@@ -911,35 +985,36 @@ def calcular_porcentaje_bosques(request, pk_imagen):
             bands_8bit = []
             for band_name in [red_masked, green_masked, blue_masked]:
                 band_data = band_name
-                min_val = 0
-                max_val = 3200
+                min_val, max_val = 0, 3200
                 band_8bit = ((band_data - min_val) / (max_val - min_val)) * 255
                 band_8bit = np.clip(band_8bit, 0, 255).round().astype(np.uint8)
                 bands_8bit.append(band_8bit)
-
             data_8bit = np.stack(bands_8bit, axis=-1)
 
-            satelite, _ = Satelite.objects.get_or_create(name='Sentinel-2')
-            
-            start_date = str(fecha) + "-01-01" 
-            fecha += 1
-            end_date = str(fecha) + "-01-01" 
-            
-            
-            imagen = ImagenSatelital.objects.get(pk=pk_imagen)
-            titulo = request.POST.get('titulo')
-            nombre_imagen = titulo +"_" + satelite.name + "_" + start_date + "_" + end_date +".png"
+            start_date = f"{fecha}-01-01"
+            end_date = f"{fecha + 1}-01-01"
+            nombre_imagen = f"{titulo}_{satelite.name}_{start_date}_{end_date}.png"
+
+            pct_forestal = (forest / len(geoms)) * 100 if len(geoms) > 0 else 0
             subimg_obj = SubImagenSatelital.objects.create(
                 imagen=imagen,
-                porcentaje= str((forest / len(geoms))* 100),
-                anio_imagen = fecha-1
+                porcentaje=f"{pct_forestal:.2f}",
+                anio_imagen=str(fecha)
             )
-            
-            # Codificar NumPy array a bytes PNG antes de guardar en Django
+
             success, encoded_img = cv2.imencode('.png', cv2.cvtColor(data_8bit, cv2.COLOR_RGB2BGR))
             if success:
                 subimg_obj.subImagen.save(nombre_imagen, ContentFile(encoded_img.tobytes()), save=False)
             subimg_obj.save()
 
-            print(f"Porcentaje de bosques en imagen para el año {fecha-1}: {(forest / len(geoms))* 100:.2f}%")
+            print(f"Porcentaje de bosques para el año {fecha}: {pct_forestal:.2f}%")
+
+    if task_id:
+        update_progress(
+            task_id, 100, 
+            "¡Evaluación completada con éxito!", 
+            "Redirigiendo a la pantalla de resultados...", 
+            status="completed", 
+            id_imagen=pk_imagen
+        )
 

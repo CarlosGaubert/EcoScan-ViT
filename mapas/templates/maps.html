@@ -397,6 +397,13 @@
               <!-- Contenido del primer formulario -->
               <form action="" method="post" enctype="multipart/form-data">
                 {% csrf_token %}
+                {% if messages %}
+                  {% for message in messages %}
+                    <div class="alert alert-{% if message.tags == 'error' %}danger{% else %}{{ message.tags|default:'info' }}{% endif %} mb-4 p-3 rounded" style="font-size: 0.85rem; margin-left: 1.5rem; margin-right: 1.5rem;">
+                      {{ message }}
+                    </div>
+                  {% endfor %}
+                {% endif %}
                 {% if error_message %}
                   <div class="alert alert-danger mb-4 p-3 rounded" style="background-color: #3b1717; border: 1px solid #7f1d1d; color: #fecaca; font-size: 0.85rem; margin-left: 1.5rem; margin-right: 1.5rem;">
                     <div class="d-flex align-items-start">
@@ -517,14 +524,51 @@
                   </div>
                 </div>
 
-                <div class="row mx-2">
-                  <div class="col-md-12">
-                    <button type="submit" class="btn btn-primary btn-sm btn-block form-control">Evaluar</button>
+                <div class="row mx-2 g-2">
+                  <div class="col-7">
+                    <button type="submit" class="btn btn-primary btn-sm btn-block form-control fw-bold">
+                      <i class="bi bi-graph-up me-1"></i> Evaluar
+                    </button>
+                  </div>
+                  <div class="col-5">
+                    <button type="button" class="btn btn-outline-danger btn-sm btn-block form-control fw-bold" onclick="confirmarEliminarArea()">
+                      <i class="bi bi-trash me-1"></i> Eliminar
+                    </button>
                   </div>
                 </div>
 
               </form>
 
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Modal Confirmar Eliminación de Área -->
+      <div class="modal fade" id="modalEliminarArea" tabindex="-1" aria-labelledby="modalEliminarAreaLabel" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+          <div class="modal-content" style="background-color: #1e1e1e; border: 1px solid #3f3f46; color: #f4f4f5;">
+            <div class="modal-header border-secondary">
+              <h5 class="modal-title fw-bold text-danger" id="modalEliminarAreaLabel">
+                <i class="bi bi-exclamation-triangle-fill me-2"></i>Eliminar Área de Estudio
+              </h5>
+              <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+            </div>
+            <div class="modal-body">
+              <p class="mb-2">¿Estás seguro de que deseas eliminar permanentemente el área de estudio seleccionada?</p>
+              <p class="text-white fw-bold mb-3 p-2 rounded" style="background-color: #27272a;" id="nombreAreaEliminar"></p>
+              <div class="alert alert-warning small mb-0" style="background-color: #332701; border-color: #664d03; color: #ffe69c;">
+                <i class="bi bi-info-circle me-1"></i> Esta acción borrará todas las clasificaciones multitemporales e imágenes calculadas por la IA para esta región geográfica y no se podrá deshacer.
+              </div>
+            </div>
+            <div class="modal-footer border-secondary">
+              <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancelar</button>
+              <form id="formEliminarArea" method="post" action="" style="display: inline;">
+                {% csrf_token %}
+                <button type="submit" class="btn btn-danger btn-sm fw-bold">
+                  <i class="bi bi-trash me-1"></i> Eliminar Definitivamente
+                </button>
+              </form>
             </div>
           </div>
         </div>
@@ -846,12 +890,20 @@
     });
   }
 
-  // Listener para carga de shapefile
-  const shapefileField = document.getElementById("id_shapefiles");
-  if (shapefileField) {
-    shapefileField.onchange = function (evt) {
-      document.getElementById("id_geometria").value = "Shapefile cargado.";
-    };
+  // Función para confirmar y ejecutar la eliminación de un área seleccionada
+  function confirmarEliminarArea() {
+    const select = document.getElementById("id_imagenes");
+    if (!select || !select.value) {
+      alert("Por favor selecciona un área de estudio para eliminar.");
+      return;
+    }
+    const areaId = select.value;
+    const areaText = select.options[select.selectedIndex].text;
+    document.getElementById("nombreAreaEliminar").textContent = areaText;
+    document.getElementById("formEliminarArea").action = "/eliminar_area/" + areaId + "/";
+    const modalEl = document.getElementById("modalEliminarArea");
+    const modal = new bootstrap.Modal(modalEl);
+    modal.show();
   }
 </script>
 {% endblock %}

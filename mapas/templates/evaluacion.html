@@ -209,15 +209,22 @@
   }
 </style>
 
-<div class="header-container d-flex align-items-center">
-  <a href="#" onclick="history.back(); return false;" class="btn-back-custom me-3" title="Regresar">
-    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="currentColor" class="bi bi-chevron-left" viewBox="0 0 16 16">
-      <path fill-rule="evenodd" d="M11.354 1.646a.5.5 0 0 1 0 .708L5.707 8l5.647 5.646a.5.5 0 0 1-.708.708l-6-6a.5.5 0 0 1 0-.708l6-6a.5.5 0 0 1 .708 0z"/>
-    </svg>
-  </a>
-  <h2 class="m-0 fs-4 fw-bold text-light">
-    Evaluación de Área de Estudio: <span class="text-secondary">{{ imagen_satelital.name }}</span>
-  </h2>
+<div class="header-container d-flex align-items-center justify-content-between">
+  <div class="d-flex align-items-center">
+    <a href="{% url 'main' %}" class="btn-back-custom me-3" title="Regresar al mapa principal">
+      <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="currentColor" class="bi bi-chevron-left" viewBox="0 0 16 16">
+        <path fill-rule="evenodd" d="M11.354 1.646a.5.5 0 0 1 0 .708L5.707 8l5.647 5.646a.5.5 0 0 1-.708.708l-6-6a.5.5 0 0 1 0-.708l6-6a.5.5 0 0 1 .708 0z"/>
+      </svg>
+    </a>
+    <h2 class="m-0 fs-4 fw-bold text-light">
+      Evaluación de Área de Estudio: <span class="text-success">{{ imagen_satelital.name }}</span>
+    </h2>
+  </div>
+  <div>
+    <button type="button" class="btn btn-outline-danger btn-sm px-3 fw-bold" onclick="confirmarEliminarDesdeEvaluacion()">
+      <i class="bi bi-trash me-1"></i> Eliminar Área
+    </button>
+  </div>
 </div>
 
 <div class="container-fluid px-4">
@@ -422,5 +429,42 @@
       }
     });
   });
+
+  // Confirmar y eliminar área de estudio desde la vista de evaluación
+  function confirmarEliminarDesdeEvaluacion() {
+    const modalEl = document.getElementById('modalEliminarAreaEval');
+    const modal = new bootstrap.Modal(modalEl);
+    modal.show();
+  }
 </script>
+
+<!-- Modal Confirmar Eliminación desde Evaluación -->
+<div class="modal fade" id="modalEliminarAreaEval" tabindex="-1" aria-labelledby="modalEliminarAreaEvalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content" style="background-color: #1e1e1e; border: 1px solid #3f3f46; color: #f4f4f5;">
+      <div class="modal-header border-secondary">
+        <h5 class="modal-title fw-bold text-danger" id="modalEliminarAreaEvalLabel">
+          <i class="bi bi-exclamation-triangle-fill me-2"></i>Eliminar Área de Estudio
+        </h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body">
+        <p class="mb-2">¿Estás seguro de que deseas eliminar permanentemente esta área de estudio?</p>
+        <p class="text-white fw-bold mb-3 p-2 rounded" style="background-color: #27272a;">{{ imagen_satelital.name }}</p>
+        <div class="alert alert-warning small mb-0" style="background-color: #332701; border-color: #664d03; color: #ffe69c;">
+          <i class="bi bi-info-circle me-1"></i> Se eliminarán permanentemente todas las subimágenes satelitales, clasificaciones y métricas asociadas. Esta acción no se puede deshacer.
+        </div>
+      </div>
+      <div class="modal-footer border-secondary">
+        <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancelar</button>
+        <form method="post" action="{% url 'eliminar_area' imagen_satelital.pk %}" style="display: inline;">
+          {% csrf_token %}
+          <button type="submit" class="btn btn-danger btn-sm fw-bold">
+            <i class="bi bi-trash me-1"></i> Eliminar Definitivamente
+          </button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
 {% endblock %}

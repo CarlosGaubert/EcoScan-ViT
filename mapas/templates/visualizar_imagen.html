@@ -173,18 +173,26 @@
   }
 </style>
 
-<!-- Spinner Overlay -->
+<!-- Spinner y Barra de Progreso en Tiempo Real -->
 <div id="loading-overlay">
-  <div class="loader-spinner"></div>
-  <h2 class="loading-title pulse-text">Procesando y Evaluando Área</h2>
-  <p class="loading-desc">
-    Estamos descargando los datos históricos (2018–2026) de Google Earth Engine
-    e iniciando el modelo de Deep Learning (Vision Transformer) para clasificar
-    las coberturas de suelo año por año.
-    <br /><strong class="text-white mt-2 d-block"
-      >Por favor, espera unos segundos.</strong
-    >
+  <div class="loader-spinner mb-3"></div>
+  <h2 class="loading-title pulse-text">Procesando y Evaluando Área con Inteligencia Artificial</h2>
+  <p class="loading-desc mb-2">
+    Analizando series temporales con Google Earth Engine y clasificando coberturas de suelo mediante Vision Transformer (ViT).
   </p>
+
+  <!-- Barra de Progreso Dinámica -->
+  <div class="progress-container w-100 my-3 px-3" style="max-width: 540px;">
+    <div class="progress" style="height: 24px; background-color: #27272a; border-radius: 12px; border: 1px solid #3f3f46; box-shadow: inset 0 2px 5px rgba(0,0,0,0.6); overflow: hidden;">
+      <div id="evalProgressBar" class="progress-bar progress-bar-striped progress-bar-animated bg-success" role="progressbar" style="width: 0%; font-weight: 700; font-size: 0.85rem; letter-spacing: 0.5px; transition: width 0.25s ease;" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">0%</div>
+    </div>
+    <div class="d-flex justify-content-between align-items-center mt-2 px-1">
+      <span id="evalProgressText" class="text-light fw-bold" style="font-size: 0.9rem;">Iniciando evaluación...</span>
+      <span id="evalProgressPercent" class="badge bg-dark border border-secondary text-success fw-bold px-2 py-1">0%</span>
+    </div>
+    <p id="evalProgressDetail" class="text-secondary small mt-1 mb-0 font-monospace text-center" style="font-size: 0.8rem;">Conectando con Google Earth Engine...</p>
+    <div id="evalErrorBox" class="alert alert-danger mt-3 d-none text-center" style="font-size: 0.85rem; background-color: #3b1717; border-color: #7f1d1d; color: #fecaca;"></div>
+  </div>
 </div>
 
 <div class="container py-5">
@@ -547,12 +555,98 @@
 </div>
 
 <script>
-  // Show loading overlay on form submit
-  document
-    .getElementById("previewForm")
-    .addEventListener("submit", function () {
-      document.getElementById("loading-overlay").style.display = "flex";
+  // Manejo de guardado con barra de progreso en tiempo real
+  const previewForm = document.getElementById("previewForm");
+  const loadingOverlay = document.getElementById("loading-overlay");
+  const evalProgressBar = document.getElementById("evalProgressBar");
+  const evalProgressText = document.getElementById("evalProgressText");
+  const evalProgressPercent = document.getElementById("evalProgressPercent");
+  const evalProgressDetail = document.getElementById("evalProgressDetail");
+  const evalErrorBox = document.getElementById("evalErrorBox");
+
+  previewForm.addEventListener("submit", function (e) {
+    const guardarVal = document.getElementById("guardar").value;
+    if (guardarVal === "0") {
+      return; // Descartar y regresar
+    }
+
+    e.preventDefault();
+    loadingOverlay.style.display = "flex";
+    evalProgressBar.style.width = "0%";
+    evalProgressBar.textContent = "0%";
+    evalProgressPercent.textContent = "0%";
+    evalProgressText.textContent = "Iniciando análisis multitemporal...";
+    evalProgressDetail.textContent = "Conectando con Google Earth Engine...";
+    evalErrorBox.classList.add("d-none");
+
+    const formData = new FormData(previewForm);
+
+    fetch("{% url 'iniciar_evaluacion' %}", {
+      method: "POST",
+      body: formData,
+      headers: {
+        "X-CSRFToken": formData.get("csrfmiddlewaretoken")
+      }
+    })
+    .then(res => {
+      if (!res.ok) {
+        throw new Error("HTTP error " + res.status);
+      }
+      return res.json();
+    })
+    .then(data => {
+      if (data.error) {
+        showError(data.error);
+        return;
+      }
+      pollProgress(data.task_id);
+    })
+    .catch(err => {
+      showError("Error de conexión con el servidor: " + err.message);
     });
+  });
+
+  function pollProgress(taskId) {
+    const pollInterval = setInterval(() => {
+      fetch(`/progreso_evaluacion/${taskId}/`)
+        .then(res => res.json())
+        .then(data => {
+          if (data.status === "running" || data.status === "starting") {
+            const pct = Math.min(Math.max(data.progress, 0), 99);
+            evalProgressBar.style.width = pct + "%";
+            evalProgressBar.textContent = pct + "%";
+            evalProgressPercent.textContent = pct + "%";
+            evalProgressText.textContent = data.current_step || "Procesando...";
+            evalProgressDetail.textContent = data.detail || "";
+          } else if (data.status === "completed") {
+            clearInterval(pollInterval);
+            evalProgressBar.style.width = "100%";
+            evalProgressBar.textContent = "100%";
+            evalProgressPercent.textContent = "100%";
+            evalProgressText.textContent = "¡Evaluación completada con éxito!";
+            evalProgressDetail.textContent = "Cargando resultados detallados del área...";
+            setTimeout(() => {
+              window.location.href = `/evaluacion/${data.id_imagen}/`;
+            }, 600);
+          } else if (data.status === "error") {
+            clearInterval(pollInterval);
+            showError(data.error_message || data.detail || "Error durante el análisis satelital.");
+          }
+        })
+        .catch(err => {
+          console.error("Error consultando progreso:", err);
+        });
+    }, 600);
+  }
+
+  function showError(msg) {
+    evalProgressBar.classList.remove("bg-success");
+    evalProgressBar.classList.add("bg-danger");
+    evalProgressText.textContent = "Fallo en la evaluación";
+    evalProgressDetail.textContent = "";
+    evalErrorBox.innerHTML = `<strong>Error:</strong> ${msg} <br><a href="{% url 'main' %}" class="btn btn-sm btn-outline-light mt-2"><i class="bi bi-arrow-left"></i> Volver al mapa</a>`;
+    evalErrorBox.classList.remove("d-none");
+  }
 
   // GEE Image loading spinner handler
   document.addEventListener("DOMContentLoaded", function () {
