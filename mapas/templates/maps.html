@@ -126,6 +126,15 @@
     transform: translateY(-1px);
   }
 
+  .sidebar-column code {
+    color: #e4e4e7 !important;
+    background-color: #27272a;
+    padding: 2px 6px;
+    border-radius: 4px;
+    border: 1px solid #3f3f46;
+    font-size: 0.75rem;
+  }
+
   .map-column {
     height: 100vh;
     padding: 0 !important;
@@ -436,7 +445,10 @@
 
                     <!-- Geometria -->
                     <div class="mb-3">
-                      <label class="form-label fw-semibold" style="font-size: 0.85rem; color: #a1a1aa;" for="{{ form.geometria.id_for_label }}">{{ form.geometria.label }}</label>
+                      <div class="d-flex justify-content-between align-items-center mb-1">
+                        <label class="form-label fw-semibold mb-0" style="font-size: 0.85rem; color: #a1a1aa;" for="{{ form.geometria.id_for_label }}">{{ form.geometria.label }}</label>
+                        <small class="text-muted" style="font-size: 0.72rem;">(Auto-generado o vía Shapefile)</small>
+                      </div>
                       {{ form.geometria }}
                       {% if form.geometria.errors %}
                         <div class="text-danger mt-1" style="font-size: 0.85rem;">
@@ -447,8 +459,17 @@
 
                     <!-- Shapefiles -->
                     <div class="mb-3">
-                      <label class="form-label fw-semibold" style="font-size: 0.85rem; color: #a1a1aa;" for="{{ form.shapefiles.id_for_label }}">{{ form.shapefiles.label }}</label>
+                      <div class="d-flex justify-content-between align-items-center mb-1">
+                        <label class="form-label fw-semibold mb-0" style="font-size: 0.85rem; color: #a1a1aa;" for="{{ form.shapefiles.id_for_label }}">
+                          Subir archivo Shapefile
+                        </label>
+                        <span class="badge" style="background-color: #27272a; border: 1px solid #3f3f46; color: #a1a1aa; font-size: 0.7rem; font-weight: 500;">.zip o .shp</span>
+                      </div>
                       {{ form.shapefiles }}
+                      <small class="d-block mt-1" style="font-size: 0.78rem; color: #a1a1aa; line-height: 1.4;">
+                        Admite archivo comprimido (.zip) o conjunto (.shp, .shx, .dbf).
+                      </small>
+                      <div id="shapefile-feedback" class="mt-2" style="display: none;"></div>
                       {% if form.shapefiles.errors %}
                         <div class="text-danger mt-1" style="font-size: 0.85rem;">
                           {% for error in form.shapefiles.errors %}{{ error }}{% endfor %}
@@ -686,6 +707,7 @@
   $(document).ready(function () {
     $('[data-toggle="collapse"]').collapse();
     initMap();
+    setupShapefileUpload();
   });
 
   function initMap() {
@@ -811,9 +833,185 @@
       map.removeLayer(currentLayer);
       currentLayer = null;
     }
-    document.getElementById("id_geometria").value = "";
-    document.getElementById("id_metros_cuadrados").value = "";
+    const geomInput = document.getElementById("id_geometria");
+    if (geomInput) geomInput.value = "";
+    const areaInput = document.getElementById("id_metros_cuadrados");
+    if (areaInput) areaInput.value = "";
+    const shapefileInput = document.getElementById("id_shapefiles");
+    if (shapefileInput) shapefileInput.value = "";
+    const feedbackDiv = document.getElementById("shapefile-feedback");
+    if (feedbackDiv) {
+      feedbackDiv.style.display = 'none';
+      feedbackDiv.innerHTML = '';
+    }
     setDrawingTool('hand');
+  }
+
+  // Manejador del input de archivos Shapefile
+  function setupShapefileUpload() {
+    const shapefileInput = document.getElementById('id_shapefiles');
+    const feedbackDiv = document.getElementById('shapefile-feedback');
+    if (!shapefileInput || !feedbackDiv) return;
+
+    shapefileInput.addEventListener('change', async function (e) {
+      const files = Array.from(e.target.files);
+      if (!files || files.length === 0) {
+        feedbackDiv.style.display = 'none';
+        feedbackDiv.innerHTML = '';
+        return;
+      }
+
+      // Extensiones permitidas exclusivamente para Shapefiles
+      const allowedExts = ['zip', 'shp', 'shx', 'dbf', 'prj', 'cpg', 'qpj', 'sbn', 'sbx'];
+      let hasInvalid = false;
+      let invalidName = '';
+      let hasShpOrZip = false;
+
+      for (const f of files) {
+        const ext = f.name.split('.').pop().toLowerCase();
+        if (!allowedExts.includes(ext)) {
+          hasInvalid = true;
+          invalidName = f.name;
+          break;
+        }
+        if (ext === 'zip' || ext === 'shp') {
+          hasShpOrZip = true;
+        }
+      }
+
+      // Rechazar si hay archivos con extensiones no válidas
+      if (hasInvalid) {
+        shapefileInput.value = '';
+        feedbackDiv.style.display = 'block';
+        feedbackDiv.innerHTML = `
+          <div class="alert alert-danger p-2 mb-0 rounded" style="background-color: #3b1717; border: 1px solid #7f1d1d; color: #fecaca; font-size: 0.8rem;">
+            <strong>Formato no permitido:</strong> El archivo "${invalidName}" no es un Shapefile. Solo se admiten archivos <code>.zip</code> o componentes <code>.shp, .shx, .dbf</code>.
+          </div>
+        `;
+        return;
+      }
+
+      if (!hasShpOrZip) {
+        shapefileInput.value = '';
+        feedbackDiv.style.display = 'block';
+        feedbackDiv.innerHTML = `
+          <div class="alert alert-warning p-2 mb-0 rounded" style="background-color: #3b2e17; border: 1px solid #785a1a; color: #fde68a; font-size: 0.8rem;">
+            Debes seleccionar un archivo comprimido <code>.zip</code> o al menos el archivo principal <code>.shp</code>.
+          </div>
+        `;
+        return;
+      }
+
+      // Indicador de carga
+      feedbackDiv.style.display = 'block';
+      feedbackDiv.innerHTML = `
+        <div class="d-flex align-items-center p-2 rounded" style="background-color: #1e293b; border: 1px solid #334155; color: #94a3b8; font-size: 0.8rem;">
+          <span class="spinner-border spinner-border-sm me-2 text-info" role="status" aria-hidden="true" style="width: 14px; height: 14px; margin-right: 8px;"></span>
+          <span>Procesando y cargando geometría en el mapa...</span>
+        </div>
+      `;
+
+      const formData = new FormData();
+      for (const f of files) {
+        formData.append('shapefiles', f);
+      }
+      const csrfInput = document.querySelector('[name=csrfmiddlewaretoken]');
+      if (csrfInput) {
+        formData.append('csrfmiddlewaretoken', csrfInput.value);
+      }
+
+      try {
+        const response = await fetch('/cargar_shapefile/', {
+          method: 'POST',
+          body: formData,
+          headers: {
+            'X-Requested-With': 'XMLHttpRequest'
+          }
+        });
+
+        const data = await response.json();
+
+        if (!response.ok || !data.success) {
+          throw new Error(data.error || 'Ocurrió un error al procesar el archivo Shapefile.');
+        }
+
+        // Eliminar figura previa si existe
+        if (currentLayer) {
+          map.removeLayer(currentLayer);
+          currentLayer = null;
+        }
+
+        // Convertir coordenadas [lng, lat] a [lat, lng] para Leaflet
+        const latlngs = data.coordinates.map(pt => [pt[1], pt[0]]);
+
+        // Dibujar polígono en el mapa con estilo estándar GEE (#ea4335)
+        currentLayer = L.polygon(latlngs, {
+          color: '#ea4335',
+          fillColor: '#ea4335',
+          fillOpacity: 0.25,
+          weight: 2
+        }).addTo(map);
+
+        // Habilitar edición de vértices solo si la geometría es pequeña (<= 150 vértices)
+        // para evitar congelar el navegador creando miles de marcadores DOM
+        if (currentLayer.pm && data.coordinates.length <= 150) {
+          currentLayer.pm.enable();
+          currentLayer.on('pm:edit', updateGeometryAndArea);
+          currentLayer.on('pm:dragend', updateGeometryAndArea);
+        }
+
+        // Dirigir el mapa hacia donde está la geometría cargada
+        if (data.bounds && data.bounds.length === 2) {
+          map.fitBounds(data.bounds, { padding: [50, 50], maxZoom: 16 });
+        } else {
+          map.fitBounds(currentLayer.getBounds(), { padding: [50, 50], maxZoom: 16 });
+        }
+
+        // Cargar las coordenadas en el input 'geometria'
+        const geomInput = document.getElementById('id_geometria');
+        if (geomInput) {
+          geomInput.value = JSON.stringify(data.coordinates);
+        }
+
+        // Cargar los metros cuadrados
+        const areaInput = document.getElementById('id_metros_cuadrados');
+        if (areaInput) {
+          areaInput.value = Math.round(data.area_m2 * 100) / 100 + ' m²';
+        }
+
+        // Sugerir título si está vacío
+        const tituloInput = document.getElementById('id_titulo');
+        if (tituloInput && !tituloInput.value.trim() && data.filename) {
+          tituloInput.value = data.filename.replace(/_/g, ' ');
+        }
+
+        // Asegurar que el checkbox de la capa 'geometry' esté activado
+        const layerToggle = document.getElementById('layer-geometry-toggle');
+        if (layerToggle) layerToggle.checked = true;
+
+        // Feedback de éxito
+        let detailText = `${data.num_vertices} vértices`;
+        if (data.is_simplified) {
+          detailText += ` (optimizado de ${data.original_vertices})`;
+        }
+        feedbackDiv.innerHTML = `
+          <div class="alert alert-success p-2 mb-0 rounded d-flex justify-content-between align-items-center" style="background-color: #14532d; border: 1px solid #166534; color: #bbf7d0; font-size: 0.8rem;">
+            <div>
+              <strong>✓ Geometría cargada:</strong> ${detailText}.
+            </div>
+            <button type="button" class="btn btn-sm btn-link p-0 text-white" style="text-decoration: underline; font-size: 0.75rem;" onclick="clearGeometry()">Limpiar</button>
+          </div>
+        `;
+
+      } catch (err) {
+        console.error('Error al procesar Shapefile:', err);
+        feedbackDiv.innerHTML = `
+          <div class="alert alert-danger p-2 mb-0 rounded" style="background-color: #3b1717; border: 1px solid #7f1d1d; color: #fecaca; font-size: 0.8rem;">
+            <strong>Error:</strong> ${err.message}
+          </div>
+        `;
+      }
+    });
   }
 
   // Actualizar coordenadas GeoJSON y área

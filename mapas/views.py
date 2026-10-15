@@ -18,10 +18,13 @@ from django.core.files.base import ContentFile
 from django.conf import settings
 
 import requests
+import zipfile
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import numpy as np  
 import geopandas as gpd
 from shapely.geometry import MultiPolygon, Polygon, LineString, mapping
 from shapely.ops import split
+from shapely.validation import make_valid
 import rasterio
 from rasterio.features import geometry_mask
 from PIL import Image
@@ -136,31 +139,14 @@ def maps(request):
       form_imagenes = ImagenesDescargadasForm()
 
       raw_geom = request.POST.get('geometria')
-      if not raw_geom or not raw_geom.strip():
-        return render(
-          request, 
-          'maps.html',
-          {
-            'form': form,
-            'form_imagenes': form_imagenes,
-            'error_message': 'No has seleccionado un área de estudio. Por favor dibuja un rectángulo o polígono en el mapa (esquina superior izquierda) o sube un archivo Shapefile (.zip).'
-          }
-        )
-
       geometria = None
-      if raw_geom == 'Shapefile cargado.':
+
+      # Si se subió un shapefile por formulario directo o 'Shapefile cargado.'
+      archivos_subidos = request.FILES.getlist('shapefiles')
+      if archivos_subidos and (not raw_geom or not raw_geom.strip() or raw_geom == 'Shapefile cargado.'):
         try:
-          for uploaded_file in request.FILES.getlist('shapefiles'):
-            handle_uploaded_file(uploaded_file)
-          shp_file = get_shp_file(request.FILES.getlist('shapefiles'))
-          if not shp_file:
-            raise ValueError('No se encontró un archivo con extensión .shp dentro del archivo comprimido subido.')
-          geoms = process_shapefile("./shapefiles/temp/" + str(shp_file))
-          for sq in geoms:
-            xx, yy = sq.exterior.coords.xy
-            x = xx.tolist()
-            y = yy.tolist()
-          geometria = list(zip(x, y))
+          datos = extraer_datos_shapefile(archivos_subidos)
+          geometria = datos['coordinates']
         except Exception as shp_err:
           print(f"Error procesando shapefile: {shp_err}")
           return render(
@@ -172,7 +158,7 @@ def maps(request):
               'error_message': f'Error al procesar el archivo Shapefile: {shp_err}'
             }
           )
-      else:
+      elif raw_geom and raw_geom.strip() and raw_geom != 'Shapefile cargado.':
         try:
           geometria = json.loads(raw_geom)
         except Exception as json_err:
@@ -186,6 +172,16 @@ def maps(request):
               'error_message': 'El formato de las coordenadas recibidas no es válido. Vuelve a trazar el polígono en el mapa.'
             }
           )
+      else:
+        return render(
+          request, 
+          'maps.html',
+          {
+            'form': form,
+            'form_imagenes': form_imagenes,
+            'error_message': 'No has seleccionado un área de estudio. Por favor dibuja un rectángulo o polígono en el mapa o sube un archivo Shapefile (.zip o .shp).'
+          }
+        )
 
       if not geometria or len(geometria) < 3:
         return render(
@@ -205,8 +201,7 @@ def maps(request):
         geo_path = crear_archivo_shapefile(geometria)
         print(f"Generando archivo shapefile en {geo_path}")
 
-        url, capture_date, cloud_pct = descargar_imagen_sentinel(geometria, None, None, tipoImagen, 1500)
-        porcentaje = calcular_porcentaje_bosque(geometria)
+        url, capture_date, cloud_pct, porcentaje = descargar_imagen_sentinel(geometria, None, None, tipoImagen, 1024)
 
       except Exception as gee_err:
         print(f"ERROR durante la descarga satelital Sentinel: {gee_err}")
@@ -240,6 +235,7 @@ def maps(request):
           'satelite': satelite.name,
           'tipoImagen_name': tipoImagen.name,
           'tipoImagen_id': tipoImagen.id,
+          'fecha_captura': capture_date,
           'fecha_inicio': capture_date,
           'fecha_fin': capture_date,
           'metros_cuadrados': request.POST.get('metros_cuadrados'),
@@ -424,6 +420,166 @@ def eliminar_area(request, id_imagen):
 
     return redirect('main')
 
+
+def extraer_datos_shapefile(files):
+    """
+    Procesa uno o varios archivos subidos correspondientes a un Shapefile (.zip o conjunto .shp, .shx, .dbf, etc.).
+    Valida formatos permitidos, descomprime o almacena temporalmente y extrae con GeoPandas:
+    - coordinates: [[lng, lat], ...]
+    - bounds: [[min_lat, min_lng], [max_lat, max_lng]]
+    - area_m2: área aproximada en m²
+    - filename: nombre base del archivo
+    """
+    if not files:
+        raise ValueError("No se recibió ningún archivo.")
+
+    ALLOWED_EXTENSIONS = {'.zip', '.shp', '.shx', '.dbf', '.prj', '.cpg', '.qpj', '.sbn', '.sbx'}
+    for f in files:
+        ext = os.path.splitext(f.name)[1].lower()
+        if ext not in ALLOWED_EXTENSIONS:
+            raise ValueError(
+                f"El archivo '{f.name}' no tiene un formato válido de Shapefile. "
+                "Solo se admiten archivos comprimidos (.zip) o componentes (.shp, .shx, .dbf)."
+            )
+
+    temp_dir = os.path.join(settings.MEDIA_ROOT, 'shapefiles', 'temp', str(uuid.uuid4()))
+    os.makedirs(temp_dir, exist_ok=True)
+
+    try:
+        for f in files:
+            ext = os.path.splitext(f.name)[1].lower()
+            dest_file = os.path.join(temp_dir, f.name)
+            with open(dest_file, 'wb+') as dest:
+                for chunk in f.chunks():
+                    dest.write(chunk)
+
+            if ext == '.zip':
+                try:
+                    with zipfile.ZipFile(dest_file, 'r') as zip_ref:
+                        zip_ref.extractall(temp_dir)
+                except Exception as zip_err:
+                    raise ValueError(f"El archivo .zip está dañado o no es un archivo comprimido válido: {zip_err}")
+
+        # Localizar el archivo .shp ignorando archivos de sistema o de macOS (__MACOSX / ._*)
+        shp_files = []
+        for root, _, filenames in os.walk(temp_dir):
+            for fname in filenames:
+                if fname.lower().endswith('.shp') and not fname.startswith('._') and '__MACOSX' not in root:
+                    shp_files.append(os.path.join(root, fname))
+
+        if not shp_files:
+            raise ValueError("No se encontró ningún archivo con extensión .shp dentro del archivo subido.")
+
+        shp_path = shp_files[0]
+        base_name = os.path.splitext(os.path.basename(shp_path))[0]
+
+        gdf = gpd.read_file(shp_path)
+        if gdf.empty or len(gdf) == 0:
+            raise ValueError("El archivo Shapefile no contiene ningún registro ni geometría.")
+
+        # Si el CRS no es EPSG:4326 (WGS84 lat/lng), reproyectar automáticamente
+        if gdf.crs is not None:
+            try:
+                if gdf.crs.to_epsg() != 4326:
+                    gdf = gdf.to_crs(epsg=4326)
+            except Exception:
+                pass
+
+        geoms = gdf.geometry.dropna()
+        if len(geoms) == 0:
+            raise ValueError("No se encontraron geometrías válidas en el archivo Shapefile.")
+
+        if len(geoms) == 1:
+            geom = geoms.iloc[0]
+        else:
+            try:
+                geom = geoms.unary_union
+            except Exception:
+                geom = geoms.iloc[0]
+
+        if geom.geom_type == 'MultiPolygon':
+            geom = max(geom.geoms, key=lambda g: g.area)
+        elif geom.geom_type != 'Polygon':
+            raise ValueError(f"La geometría del Shapefile es de tipo '{geom.geom_type}', pero se requiere un Polígono.")
+
+        # Asegurar validez topológica (eliminar auto-intersecciones)
+        if not geom.is_valid:
+            geom = make_valid(geom)
+            if geom.geom_type == 'MultiPolygon':
+                geom = max(geom.geoms, key=lambda g: g.area)
+
+        # Calcular área precisa antes de simplificar
+        try:
+            gdf_metric = gpd.GeoSeries([geom], crs='EPSG:4326').to_crs(epsg=3857)
+            area_m2 = round(float(gdf_metric.area.iloc[0]), 2)
+        except Exception:
+            area_m2 = 0.0
+
+        # Si el polígono tiene demasiados vértices (> 500), simplificar adaptativamente
+        # Esto previene el congelamiento del navegador en Leaflet y asegura compatibilidad con Google Earth Engine.
+        original_vertices = len(geom.exterior.coords)
+        if original_vertices > 500:
+            for tol in [0.001, 0.002, 0.004, 0.008, 0.015, 0.025]:
+                s = geom.simplify(tolerance=tol, preserve_topology=True)
+                if not s.is_valid:
+                    s = make_valid(s)
+                if s.geom_type == 'MultiPolygon':
+                    s = max(s.geoms, key=lambda g: g.area)
+                if s.geom_type == 'Polygon' and not s.is_empty:
+                    geom = s
+                    if len(geom.exterior.coords) <= 500:
+                        break
+
+        coords = [[round(float(x), 7), round(float(y), 7)] for x, y in geom.exterior.coords]
+        if len(coords) < 3:
+            raise ValueError("El polígono del Shapefile debe tener al menos 3 vértices.")
+
+        minx, miny, maxx, maxy = geom.bounds
+        bounds = [[float(miny), float(minx)], [float(maxy), float(maxx)]]
+
+        return {
+            'coordinates': coords,
+            'bounds': bounds,
+            'area_m2': area_m2,
+            'filename': base_name,
+            'num_vertices': len(coords),
+            'original_vertices': original_vertices,
+            'is_simplified': original_vertices > len(coords)
+        }
+    finally:
+        shutil.rmtree(temp_dir, ignore_errors=True)
+
+
+def cargar_shapefile(request):
+    """
+    Endpoint AJAX para procesar un archivo Shapefile (.zip o .shp),
+    extrayendo las coordenadas y límites para mostrarlos inmediatamente en el mapa.
+    """
+    if request.method != 'POST':
+        return JsonResponse({'success': False, 'error': 'Método no permitido'}, status=405)
+
+    files = request.FILES.getlist('shapefiles') or request.FILES.getlist('file')
+    if not files:
+        return JsonResponse({'success': False, 'error': 'No se seleccionó ningún archivo Shapefile.'}, status=400)
+
+    try:
+        resultado = extraer_datos_shapefile(files)
+        return JsonResponse({
+            'success': True,
+            'coordinates': resultado['coordinates'],
+            'bounds': resultado['bounds'],
+            'area_m2': resultado['area_m2'],
+            'filename': resultado['filename'],
+            'num_vertices': resultado['num_vertices'],
+            'original_vertices': resultado['original_vertices'],
+            'is_simplified': resultado['is_simplified']
+        })
+    except ValueError as val_err:
+        return JsonResponse({'success': False, 'error': str(val_err)}, status=400)
+    except Exception as err:
+        return JsonResponse({'success': False, 'error': f'Error al procesar el archivo Shapefile: {err}'}, status=500)
+
+
 def descargar_imagen_landsat8(geometry, fecha_inicio, fecha_fin, tipoImagen):
   band = ['B4', 'B3', 'B2']
 
@@ -501,8 +657,44 @@ def descargar_imagen_landsat7(geometry, fecha_inicio, fecha_fin, tipoImagen):
   return url
   
 
-def descargar_imagen_sentinel(geometry, fecha_inicio=None, fecha_fin=None, tipoImagen=None, dimension=1500):
-  
+def seleccionar_imagen_sentinel_mas_reciente(collection):
+  """
+  Selecciona la captura Sentinel-2 con menor nubosidad de forma ultrarrápida (1-2 queries GEE),
+  priorizando imágenes recientes (< 60 días) con cielo despejado y retrocediendo progresivamente si están nubladas.
+  """
+  now = datetime.now()
+  hace_60_dias = (now - timedelta(days=60)).strftime('%Y-%m-%d')
+  hace_365_dias = (now - timedelta(days=365)).strftime('%Y-%m-%d')
+  hoy = now.strftime('%Y-%m-%d')
+
+  # 1. Ventana reciente (últimos 60 días), ordenada por MENOR nubosidad
+  recent_col = collection.filterDate(hace_60_dias, hoy).sort('CLOUDY_PIXEL_PERCENTAGE', True)
+  try:
+    if recent_col.limit(1).size().getInfo() > 0:
+      candidate = recent_col.first()
+      # Si la mejor escena de los últimos 2 meses tiene nubosidad aceptable (< 15%), usarla de inmediato
+      cld = candidate.get('CLOUDY_PIXEL_PERCENTAGE').getInfo()
+      if cld is not None and cld < 15.0:
+        return candidate
+  except Exception:
+    pass
+
+  # 2. Ventana anual (últimos 365 días), ordenada por MENOR nubosidad
+  year_col = collection.filterDate(hace_365_dias, hoy).sort('CLOUDY_PIXEL_PERCENTAGE', True)
+  try:
+    if year_col.limit(1).size().getInfo() > 0:
+      candidate = year_col.first()
+      cld = candidate.get('CLOUDY_PIXEL_PERCENTAGE').getInfo()
+      if cld is not None and cld < 20.0:
+        return candidate
+  except Exception:
+    pass
+
+  # 3. Fallback: la imagen más limpia disponible en todo el historial
+  return collection.sort('CLOUDY_PIXEL_PERCENTAGE', True).first()
+
+
+def descargar_imagen_sentinel(geometry, fecha_inicio=None, fecha_fin=None, tipoImagen=None, dimension=1024):
   band = ['B4', 'B3', 'B2']
 
   if tipoImagen.name == 'True color':
@@ -514,106 +706,68 @@ def descargar_imagen_sentinel(geometry, fecha_inicio=None, fecha_fin=None, tipoI
   elif tipoImagen.name == 'Urban':
     band = ['B12', 'B11', 'B4']
   
-  # Inicializar la API de Google Earth Engine con manejo de sesión
   inicializar_earth_engine()
 
-  # Definir la geometría
-  geometry = ee.Geometry.Polygon([geometry], None, False)
+  geometry_ee = ee.Geometry.Polygon([geometry], None, False)
 
   collection = ee.ImageCollection('COPERNICUS/S2_HARMONIZED') \
-      .filterBounds(geometry)
+      .filterBounds(geometry_ee)
 
-  # Filtrar por fecha si se especificó un rango
   if fecha_inicio and fecha_fin and fecha_inicio != fecha_fin:
     collection = collection.filterDate(fecha_inicio, fecha_fin)
+    image = collection.sort('CLOUDY_PIXEL_PERCENTAGE', True).first()
   else:
-    # Priorizar imágenes de los últimos 180 días para mantener actualidad
-    now = datetime.now()
-    hace_180_dias = (now - timedelta(days=180)).strftime('%Y-%m-%d')
-    hoy = now.strftime('%Y-%m-%d')
-    recent_col = collection.filterDate(hace_180_dias, hoy)
-    try:
-      if recent_col.size().getInfo() > 0:
-        collection = recent_col
-    except Exception:
-      pass
+    image = seleccionar_imagen_sentinel_mas_reciente(collection)
 
-  # Ordenar de menor a mayor porcentaje de nubes para obtener la escena con menor nubosidad
-  collection = collection.sort('CLOUDY_PIXEL_PERCENTAGE', True)
+  # Cálculo instantáneo del porcentaje de bosque (NDVI) sobre la misma escena (escala 30m para respuesta en ~0.5s)
+  ndvi = image.normalizedDifference(['B8', 'B4'])
+  bosque = ndvi.gt(0.2)
+  forest_reduction = bosque.reduceRegion(
+      reducer=ee.Reducer.mean(),
+      geometry=geometry_ee,
+      scale=30,
+      maxPixels=1e9
+  )
 
-  image = collection.first()
-
-  try:
-    date_str = ee.Date(image.get('system:time_start')).format('YYYY-MM-DD').getInfo()
-  except Exception as e:
-    print(f"Error getting image date: {e}")
-    date_str = datetime.now().strftime('%Y-%m-%d')
+  # Consulta unificada de metadatos en un solo viaje de red HTTP
+  meta_dict = ee.Dictionary({
+      'date': ee.Date(image.get('system:time_start')).format('YYYY-MM-dd'),
+      'cloud': image.get('CLOUDY_PIXEL_PERCENTAGE'),
+      'forest': forest_reduction.get('nd')
+  })
 
   try:
-    cloud_pct = image.get('CLOUDY_PIXEL_PERCENTAGE').getInfo()
+    info = meta_dict.getInfo()
+    date_str = info.get('date', datetime.now().strftime('%Y-%m-%d'))
+    cloud_pct = info.get('cloud', 0.0)
     cloud_pct_str = f"{cloud_pct:.2f}" if cloud_pct is not None else "0.00"
-  except Exception:
+    forest_val = info.get('forest', 0.0)
+    porcentaje_str = f"{round((forest_val or 0.0) * 100, 2):.2f}"
+  except Exception as e:
+    print(f"Aviso al obtener metadatos: {e}")
+    date_str = datetime.now().strftime('%Y-%m-%d')
     cloud_pct_str = "0.00"
+    porcentaje_str = "0.00"
 
-  datasetClip = image.clip(geometry)
+  datasetClip = image.clip(geometry_ee)
   imagenRGB = datasetClip.visualize(**{'min': 0, 'max': 3200, 'bands': band})
-  extension = 'png'
-
-  url = imagenRGB.getThumbURL({'region': geometry, 'dimensions': dimension, 'format': extension})
+  url = imagenRGB.getThumbURL({'region': geometry_ee, 'dimensions': dimension, 'format': 'png'})
   
-  return url, date_str, cloud_pct_str
+  return url, date_str, cloud_pct_str, porcentaje_str
    
 def calcular_porcentaje_bosque(geometry, fecha_inicio=None, fecha_fin=None):
-    # Inicializar la API de Google Earth Engine con manejo de sesión
     inicializar_earth_engine()
-
-    geometry = ee.Geometry.Polygon([geometry], None, False)
-
-    # Filtrar la colección Sentinel-2 Harmonized
-    collection = ee.ImageCollection('COPERNICUS/S2_HARMONIZED') \
-        .filterBounds(geometry)
-
+    geometry_ee = ee.Geometry.Polygon([geometry], None, False)
+    collection = ee.ImageCollection('COPERNICUS/S2_HARMONIZED').filterBounds(geometry_ee)
     if fecha_inicio and fecha_fin and fecha_inicio != fecha_fin:
-        collection = collection.filterDate(fecha_inicio, fecha_fin)
+        image = collection.filterDate(fecha_inicio, fecha_fin).sort('CLOUDY_PIXEL_PERCENTAGE', True).first()
     else:
-        # Priorizar imágenes de los últimos 180 días
-        now = datetime.now()
-        hace_180_dias = (now - timedelta(days=180)).strftime('%Y-%m-%d')
-        hoy = now.strftime('%Y-%m-%d')
-        recent_col = collection.filterDate(hace_180_dias, hoy)
-        try:
-            if recent_col.size().getInfo() > 0:
-                collection = recent_col
-        except Exception:
-            pass
-
-    # Ordenar por menor porcentaje de nubes (ascendente) para usar la imagen más despejada
-    collection = collection.sort('CLOUDY_PIXEL_PERCENTAGE', True)
-
-    # Obtener la imagen con menor nubosidad de la colección
-    sentinel_image = collection.first()
-
-    # Calcular el NDVI usando las bandas B8 y B4 de Sentinel-2
-    ndvi = sentinel_image.normalizedDifference(['B8', 'B4'])
-
-    # Aplicar umbral para identificar bosques
-    threshold = 0.2
-    bosque = ndvi.gt(threshold)
-
-    # Calcular el porcentaje de bosque en la región de interés
-    area_bosque = bosque.multiply(ee.Image.pixelArea()).reduceRegion(
-        reducer=ee.Reducer.sum(),
-        geometry=geometry,
-        scale=10  # Resolución espacial de Sentinel-2
-    )
-
-    total_area = geometry.area(1)
-    info_area = area_bosque.getInfo()
-    val_bosque = info_area.get('nd', 0) if info_area else 0
-    total_val = total_area.getInfo()
-    porcentaje_bosque = (val_bosque / total_val) if total_val and total_val > 0 else 0
-    resultado = round(porcentaje_bosque * 100, 2)
-    return "{:.2f}".format(resultado)
+        image = seleccionar_imagen_sentinel_mas_reciente(collection)
+    ndvi = image.normalizedDifference(['B8', 'B4'])
+    bosque = ndvi.gt(0.2)
+    info = bosque.reduceRegion(reducer=ee.Reducer.mean(), geometry=geometry_ee, scale=30, maxPixels=1e9).getInfo()
+    val = info.get('nd', 0.0) if info else 0.0
+    return f"{round((val or 0.0) * 100, 2):.2f}"
 
 def crear_archivo_shapefile(geometry):
     polygon = Polygon(tuple(geometry))
@@ -674,24 +828,15 @@ def eliminar_contenido_carpeta(carpeta_a_eliminar ):
 
 
 
-def export_rectangle_to_drive(Rectangle, name_file, start_date, end_date):
+def obtener_geotiff_directo_sentinel(Rectangle, dest_path, start_date, end_date, scale=10):
+    """
+    Descarga directamente desde Google Earth Engine el GeoTIFF compuesto (B4, B3, B2)
+    para el periodo y geometría indicados, sin pasar por colas de exportación por lotes ni Google Drive.
+    """
     inicializar_earth_engine()
-    """
-    Exports the envelope of a geometry from a shapefile to Google Drive.
-
-    Args:
-    - geo_filepath (str): Path to the shapefile.
-    - scale (int): Resolution scale. Default is 10 for Sentinel-2.
-
-    Returns:
-    - str: Status of the export task.
-    """
-
-    # Convert the shapely geometry to an Earth Engine Geometry
     coords = list(Rectangle.exterior.coords)
     region = ee.Geometry.Polygon(coords)
 
-    # Define the image collection for Sentinel-2 and filter by the region
     collection = ee.ImageCollection('COPERNICUS/S2_HARMONIZED') \
         .filterDate(start_date, end_date) \
         .filterBounds(region) \
@@ -700,28 +845,89 @@ def export_rectangle_to_drive(Rectangle, name_file, start_date, end_date):
     # Filtrar imágenes limpias con menos de 20% si están disponibles
     collection_clean = collection.filter(ee.Filter.lt('CLOUDY_PIXEL_PERCENTAGE', 20))
     try:
-        if collection_clean.size().getInfo() > 0:
+        if collection_clean.limit(1).size().getInfo() > 0:
             collection = collection_clean
     except Exception:
         pass
 
-    # Usar las escenas con menor cobertura de nubes para el compuesto
-    image = collection.limit(5).median().select(['B4', 'B3', 'B2'])  # RGB bands for Sentinel-2
+    # Usar las mejores escenas con menor nubosidad para el compuesto
+    image = collection.limit(5).median().select(['B4', 'B3', 'B2'])
 
-    # Define export parameters
+    # Calcular scale adecuado para asegurar descarga ultrarrápida y evitar desbordar límites de memoria
+    min_x, min_y, max_x, max_y = Rectangle.bounds
+    ancho_aprox_m = abs(max_x - min_x) * 90000
+    alto_aprox_m = abs(max_y - min_y) * 111000
+    max_dim_m = max(ancho_aprox_m, alto_aprox_m)
+    
+    # Sentinel-2 base es 10m.
+    # El límite de descarga sincrónica de GEE es de 48MB (50,331,648 bytes).
+    # Con un límite de ~850 píxeles por lado, el ráster RGB pesa solo 4-6 MB,
+    # garantizando descargas ultrarrápidas (1-2s) y evitando exceder el tamaño límite.
+    base_scale = max(10, int(max_dim_m / 850))
+
+    resp = None
+    last_err = ""
+    for attempt_scale in [base_scale, int(base_scale * 1.5) + 1, base_scale * 2 + 2]:
+        try:
+            download_url = image.getDownloadURL({
+                'name': os.path.splitext(os.path.basename(dest_path))[0],
+                'scale': attempt_scale,
+                'crs': 'EPSG:4326',
+                'region': region,
+                'format': 'GEO_TIFF'
+            })
+            resp = requests.get(download_url, timeout=90)
+            if resp.status_code == 200:
+                break
+            else:
+                last_err = resp.text[:200]
+        except Exception as e:
+            last_err = str(e)
+            continue
+
+    if not resp or resp.status_code != 200:
+        raise RuntimeError(f"Error descargando GeoTIFF desde GEE: {last_err}")
+
+    # Si Earth Engine empaquetó en ZIP
+    if resp.content[:4] == b'PK\x03\x04':
+        with zipfile.ZipFile(io.BytesIO(resp.content)) as z:
+            for fname in z.namelist():
+                if fname.endswith('.tif'):
+                    with open(dest_path, 'wb') as out_f:
+                        out_f.write(z.read(fname))
+                    return dest_path
+    else:
+        with open(dest_path, 'wb') as out_f:
+            out_f.write(resp.content)
+        return dest_path
+
+
+def export_rectangle_to_drive(Rectangle, name_file, start_date, end_date):
+    """Compatibilidad retrospectiva para exportación a Drive si fuera requerida."""
+    inicializar_earth_engine()
+    coords = list(Rectangle.exterior.coords)
+    region = ee.Geometry.Polygon(coords)
+    collection = ee.ImageCollection('COPERNICUS/S2_HARMONIZED') \
+        .filterDate(start_date, end_date) \
+        .filterBounds(region) \
+        .sort('CLOUDY_PIXEL_PERCENTAGE', True)
+    collection_clean = collection.filter(ee.Filter.lt('CLOUDY_PIXEL_PERCENTAGE', 20))
+    try:
+        if collection_clean.size().getInfo() > 0:
+            collection = collection_clean
+    except Exception:
+        pass
+    image = collection.limit(5).median().select(['B4', 'B3', 'B2'])
     task_config = {
         'description': name_file,
         'folder': 'rasters',
         'fileNamePrefix': name_file, 
         'scale': 10,
         'region': region,
-        'maxPixels': 1e13  # Increase this if you get an error related to pixel count
+        'maxPixels': 1e13
     }
-
-    # Start the export task to Google Drive
     task = ee.batch.Export.image.toDrive(image, **task_config)
     task.start()
-
     return task
 
 def check_task_status(task):
@@ -750,6 +956,8 @@ def get_file_id_by_name(filename, drive):
 def extract_patch_from_masked_data(red_clip, green_clip, blue_clip, mask):
     # Find where the mask is True
     rows, cols = np.where(mask)
+    if len(rows) == 0 or len(cols) == 0:
+        return None, None, None
 
     # Get the bounding box coordinates
     top_row = np.min(rows)
@@ -766,48 +974,16 @@ def extract_patch_from_masked_data(red_clip, green_clip, blue_clip, mask):
 
 def calcular_porcentaje_bosques(request, pk_imagen, task_id=None):
     if task_id:
-        update_progress(task_id, 2, "Iniciando autenticación y servicios...", "Verificando conexión con Google Drive y Earth Engine...")
+        update_progress(task_id, 3, "Iniciando análisis multitemporal...", "Cargando geometría del área de estudio...")
 
-    # Autenticación con almacenamiento de credenciales para evitar loguearse cada vez
-    gauth = GoogleAuth()
-    try:
-        gauth.LoadCredentialsFile("mycreds.txt")
-        if gauth.credentials is None:
-            gauth.LocalWebserverAuth()
-        elif gauth.access_token_expired:
-            gauth.Refresh()
-        else:
-            gauth.Authorize()
-        gauth.SaveCredentialsFile("mycreds.txt")
-    except Exception as e:
-        print(f"Error de autenticación con Google Drive, reautenticando: {e}")
-        if os.path.exists("mycreds.txt"):
+    # Limpiar cualquier GeoTIFF previo en el directorio local de descargas
+    os.makedirs('imagenes/descargas', exist_ok=True)
+    for old_file in os.listdir('imagenes/descargas'):
+        if old_file.endswith('.tif'):
             try:
-                os.remove("mycreds.txt")
-            except Exception as remove_err:
-                print(f"No se pudo eliminar mycreds.txt: {remove_err}")
-        gauth = GoogleAuth()
-        gauth.LocalWebserverAuth()
-        gauth.SaveCredentialsFile("mycreds.txt")
-
-    # Crear un objeto de GoogleDrive utilizando la autenticación
-    drive = GoogleDrive(gauth)
-
-    if task_id:
-        update_progress(task_id, 6, "Sincronizando almacenamiento temporal...", "Limpiando directorio en Google Drive...")
-
-    id_carpeta = '1TvcWff-3Qt-U7WFuzRDRRbnP3UHHezVB'
-
-    try:
-        archivos_en_carpeta = drive.ListFile({'q': f"'{id_carpeta}' in parents and trashed=false"}).GetList()
-        for archivo in archivos_en_carpeta:
-            try:
-                archivo.Delete()
-                print(f"Archivo '{archivo['title']}' eliminado correctamente.")
+                os.remove(os.path.join('imagenes/descargas', old_file))
             except Exception:
                 pass
-    except Exception as clean_err:
-        print(f"Aviso al limpiar carpeta en Drive: {clean_err}")
 
     # Obtener geometría
     geo_filepath = "./shapefiles/generated/nombre_shapefile.shp"
@@ -819,29 +995,38 @@ def calcular_porcentaje_bosques(request, pk_imagen, task_id=None):
     total_anios = len(fechas_dict)
 
     if task_id:
-        update_progress(task_id, 12, f"Enviando {total_anios} tareas a Google Earth Engine...", "Iniciando exportación multitemporal (2018-2026)...")
+        update_progress(task_id, 8, f"Descargando {total_anios} escenas satelitales directamente de Google Earth Engine...", "Iniciando conexión paralela directa (sin intermediarios)...")
 
-    tasks = []
-    for i, fecha in enumerate(fechas_dict):
-        start_date = str(fecha) + "-01-01" 
-        end_date = str(fecha + 1) + "-01-01" 
-        name_file = f"RectangleExport_{i+1}"
-        task = export_rectangle_to_drive(Rectangle, name_file=name_file, start_date=start_date, end_date=end_date)
-        tasks.append(task)
+    def descargar_un_anio(idx, anio):
+        start_date = f"{anio}-01-01"
+        end_date = f"{anio + 1}-01-01"
+        dest_tif = f"imagenes/descargas/downloaded_image_{idx + 1}.tif"
+        obtener_geotiff_directo_sentinel(Rectangle, dest_tif, start_date, end_date)
+        return idx, anio
 
-    # Monitorear tareas en Google Earth Engine (Progreso: 15% a 40%)
-    while True:
-        completed_tasks = sum(1 for t in tasks if not t.active())
-        if task_id:
-            pct_gee = 15 + int((completed_tasks / total_anios) * 25)
-            update_progress(
-                task_id, pct_gee,
-                f"Procesando en Google Earth Engine ({completed_tasks}/{total_anios} años listos)...",
-                "Componiendo escenas satelitales Sentinel-2 con mínima nubosidad..."
-            )
-        if completed_tasks == total_anios:
-            break
-        time.sleep(5)
+    descargados = 0
+    with ThreadPoolExecutor(max_workers=5) as executor:
+        future_map = {
+            executor.submit(descargar_un_anio, i, fecha): fecha 
+            for i, fecha in enumerate(fechas_dict)
+        }
+        for future in as_completed(future_map):
+            fecha = future_map[future]
+            try:
+                future.result()
+                descargados += 1
+                if task_id:
+                    pct_dl = 8 + int((descargados / total_anios) * 32)  # Progreso del 8% al 40%
+                    update_progress(
+                        task_id, pct_dl,
+                        f"Descargando imágenes satelitales ({descargados}/{total_anios} años listos)...",
+                        f"Año {fecha} procesado y descargado con éxito."
+                    )
+            except Exception as dl_err:
+                print(f"Error descargando año {fecha} desde GEE: {dl_err}")
+
+    if descargados == 0:
+        raise RuntimeError("No fue posible descargar las imágenes satelitales desde Google Earth Engine para esta región. Por favor intenta nuevamente.")
 
     # Calcular división de geometrías
     if task_id:
@@ -891,21 +1076,6 @@ def calcular_porcentaje_bosques(request, pk_imagen, task_id=None):
     model.heads = nn.Linear(in_features=768, out_features=10).to(device)
     model.load_state_dict(torch.load(path, map_location='cpu'))
 
-    # Descarga de rasters desde Drive (Progreso: 40% a 50%)
-    os.makedirs('imagenes/descargas', exist_ok=True)
-    for i, fecha in enumerate(fechas_dict):
-        if task_id:
-            pct_dl = 40 + int(((i + 1) / total_anios) * 10)
-            update_progress(
-                task_id, pct_dl,
-                f"Descargando imágenes satelitales ({i+1}/{total_anios})...",
-                f"Descargando GeoTIFF del año {fecha}..."
-            )
-        file_id = get_file_id_by_name(f'RectangleExport_{i+1}.tif', drive)
-        if file_id:
-            downloaded = drive.CreateFile({'id': file_id})
-            downloaded.GetContentFile(f'imagenes/descargas/downloaded_image_{i+1}.tif')
-
     # Inferencia con IA Parche por Parche (Progreso: 50% a 95%)
     total_parches = len(geoms)
     total_evaluaciones = total_anios * total_parches
@@ -943,7 +1113,11 @@ def calcular_porcentaje_bosques(request, pk_imagen, task_id=None):
 
                 pixel_polygon = [~transform * (x, y) for x, y in polygon.exterior.coords]
                 geojson_polygon = mapping(polygon)
-                mask = geometry_mask([geojson_polygon], transform=transform, invert=True, out_shape=src.shape)
+                mask = geometry_mask([geojson_polygon], transform=transform, invert=True, out_shape=src.shape, all_touched=True)
+                
+                if not np.any(mask):
+                    continue
+
                 full_mask = np.logical_or(full_mask, mask)
 
                 red_clip = src.read(1) * mask
@@ -951,6 +1125,8 @@ def calcular_porcentaje_bosques(request, pk_imagen, task_id=None):
                 blue_clip = src.read(3) * mask
 
                 red_patch, green_patch, blue_patch = extract_patch_from_masked_data(red_clip, green_clip, blue_clip, mask)
+                if red_patch is None or red_patch.size == 0 or red_patch.shape[0] == 0 or red_patch.shape[1] == 0:
+                    continue
                 pixel_shapely_polygon = Polygon(pixel_polygon)
                 x1, y1, x2, y2 = pixel_shapely_polygon.bounds
                 x1, y1, x2, y2 = int(x1), int(y1), int(x2), int(y2)

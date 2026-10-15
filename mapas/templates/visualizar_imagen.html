@@ -298,31 +298,33 @@
               </div>
             </div>
 
-            <!-- Rango Fechas -->
+            <!-- Fecha de Captura y Nubosidad -->
             <div class="row g-3 mb-4">
               <div class="col-6">
-                <label class="form-label-custom" for="fecha_inicio"
-                  >Fecha Inicio</label
+                <label class="form-label-custom" for="fecha_captura"
+                  ><i class="bi bi-calendar-event text-info me-1"></i> Fecha de Captura</label
                 >
                 <input
                   class="form-control form-control-custom"
-                  id="fecha_inicio"
-                  name="fecha_inicio"
+                  id="fecha_captura"
+                  name="fecha_captura"
                   type="text"
-                  value="{{ fecha_inicio }}"
+                  value="{{ fecha_captura }}"
+                  title="Captura satelital más reciente con calidad óptima"
                   readonly
                 />
               </div>
               <div class="col-6">
-                <label class="form-label-custom" for="fecha_fin"
-                  >Fecha Fin</label
+                <label class="form-label-custom" for="cloud_pct"
+                  ><i class="bi bi-cloud-sun text-info me-1"></i> Nubosidad en Escena</label
                 >
                 <input
                   class="form-control form-control-custom"
-                  id="fecha_fin"
-                  name="fecha_fin"
+                  id="cloud_pct"
+                  name="cloud_pct"
                   type="text"
-                  value="{{ fecha_fin }}"
+                  value="{{ cloud_pct }}%"
+                  title="Porcentaje de nubosidad en la escena seleccionada"
                   readonly
                 />
               </div>
@@ -355,28 +357,6 @@
                   value="{{ porcentaje }}%"
                   readonly
                 />
-              </div>
-            </div>
-
-            <!-- Nubosidad en la Escena -->
-            <div class="row g-3 mb-4">
-              <div class="col-12">
-                <label class="form-label-custom" for="cloud_pct"
-                  ><i class="bi bi-cloud-sun text-info me-1"></i> Nubosidad en Escena (Menor % de nubes)</label
-                >
-                <div class="input-group">
-                  <input
-                    class="form-control form-control-custom"
-                    id="cloud_pct"
-                    name="cloud_pct"
-                    type="text"
-                    value="{{ cloud_pct }}%"
-                    readonly
-                  />
-                  <span class="input-group-text bg-dark border-secondary text-success fw-bold">
-                    <i class="bi bi-shield-check me-1"></i> Escena con menor nubosidad
-                  </span>
-                </div>
               </div>
             </div>
 

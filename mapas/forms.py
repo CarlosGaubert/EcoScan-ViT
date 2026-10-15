@@ -14,14 +14,34 @@ class TipoImagenForm(ModelForm):
         model = models.Tipo_Imagen
         fields = ['name']
 
-class DescargaImagenForm(forms.Form):
-    titulo = forms.FloatField(label="Título área de estudio", widget=forms.TextInput(attrs={'class': 'form-control Rent',}))
-    geometria = forms.FloatField(label="Geometria", widget=forms.TextInput(attrs={'class': 'form-control'}))
-    shapefiles = MultiFileField(min_num=1, max_num=20, max_file_size=1024*1024*5, required=False)  # Hasta 5 MB por archivo y hasta 20 archivos
+class MultipleFileInput(forms.FileInput):
+    allow_multiple_selected = True
 
-    metros_cuadrados = forms.FloatField(
+class DescargaImagenForm(forms.Form):
+    titulo = forms.CharField(
+        label="Título área de estudio", 
+        required=False, 
+        widget=forms.TextInput(attrs={'class': 'form-control Rent', 'placeholder': 'Ej. Área de Estudio'})
+    )
+    geometria = forms.CharField(
+        label="Geometría", 
+        required=False, 
+        widget=forms.TextInput(attrs={'class': 'form-control', 'id': 'id_geometria', 'placeholder': 'Traza un polígono o sube un shapefile'})
+    )
+    shapefiles = forms.FileField(
+        label="Archivo Shapefile", 
+        required=False,
+        widget=MultipleFileInput(attrs={
+            'class': 'form-control',
+            'id': 'id_shapefiles',
+            'accept': '.zip,.shp,.shx,.dbf,.prj,.cpg,.qpj',
+            'multiple': True
+        })
+    )
+    metros_cuadrados = forms.CharField(
         label="Metros cuadrados",
-        widget=forms.TextInput(attrs={'class': 'form-control Rent','readonly': 'readonly'})
+        required=False,
+        widget=forms.TextInput(attrs={'class': 'form-control Rent', 'readonly': 'readonly', 'id': 'id_metros_cuadrados', 'placeholder': '0.00 m²'})
     )
 
 class ImagenesDescargadasForm(forms.Form):

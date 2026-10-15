@@ -7,11 +7,13 @@ from mapas.views import (
     vista_evaluacion, 
     iniciar_evaluacion, 
     progreso_evaluacion, 
-    eliminar_area
+    eliminar_area,
+    cargar_shapefile
 )
 
 urlpatterns = [
     path('', maps, name='main'),
+    path('cargar_shapefile/', cargar_shapefile, name='cargar_shapefile'),
     path('vista_satelite/<str:url>/', vista_satelite, name='vista_satelite'),
     path('evaluacion/', evaluacion, name='evaluacion'),
     path('evaluacion/<int:id_imagen>/', vista_evaluacion, name='vista_evaluacion'),
