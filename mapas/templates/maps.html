@@ -427,14 +427,7 @@
                 {% endif %}
                 <div class="row justify-content-between">
 
-                  <div class="col mx-4">
-                    <div class="my-4 d-flex align-items-center">
-                      <img src="{% static 'img/favicon.svg' %}" alt="EcoScan-ViT Logo" width="30" height="30" class="me-2 rounded-2" style="box-shadow: 0 0 8px rgba(16, 185, 129, 0.35);">
-                      <div>
-                        <h4 class="Rent m-0 fw-bold">EcoScan<span style="color: #10b981;">-ViT</span></h4>
-                        <small class="text-muted d-block" style="font-size: 0.75rem;">Delimitación y Consulta Satelital</small>
-                      </div>
-                    </div>
+                  <div class="col mx-4 pt-2">
                     <!-- Título -->
                     <div class="mb-3">
                       <label class="form-label fw-semibold" style="font-size: 0.85rem; color: #a1a1aa;" for="{{ form.titulo.id_for_label }}">{{ form.titulo.label }}</label>
@@ -526,11 +519,7 @@
                 {% csrf_token %}
                 <div class="row justify-content-between">
 
-                  <div class="col mx-4">
-                    <div class="my-5">
-                      <h4>Evaluar área de estudio</h4>
-
-                    </div>
+                  <div class="col mx-4 pt-2">
                     {% for field in form_imagenes %}
                       <div class="mb-3">
                         <label class="form-label fw-semibold" style="font-size: 0.85rem; color: #a1a1aa;" for="{{ field.id_for_label }}">{{ field.label }}</label>
