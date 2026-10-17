@@ -1,4 +1,5 @@
 {% extends 'base.html' %}
+{% load static %}
 
 {% block content %}
 <style>
@@ -47,9 +48,10 @@
     font-weight: 600;
     text-align: left;
     width: 100%;
-    padding: 18px 20px;
+    padding: 16px 20px;
     text-decoration: none;
-    display: block;
+    display: flex;
+    align-items: center;
     transition: background-color 0.2s;
   }
 
@@ -386,16 +388,14 @@
 <div class="container-fluid main-layout">
   <div class="row g-0 h-100">
     <div class="col-sm-3 sidebar-column">
-
-
-
       <div id="accordion">
         <div class="card">
           <div class="card-header" id="headingOne">
             <h5 class="mb-0">
               <button class="btn btn-link Rent btn-acordeon" data-toggle="collapse" data-target="#collapseOne"
                 aria-expanded="true" aria-controls="collapseOne">
-                Descarga de imágenes
+                <img src="{% static 'img/favicon.svg' %}" alt="EcoScan-ViT Logo" width="28" height="28" class="me-2 rounded-2" style="box-shadow: 0 0 8px rgba(16, 185, 129, 0.35);">
+                <span class="fw-bold fs-5 text-white" style="letter-spacing: -0.3px;">EcoScan<span style="color: #10b981;">-ViT</span></span>
               </button>
             </h5>
           </div>
@@ -428,9 +428,12 @@
                 <div class="row justify-content-between">
 
                   <div class="col mx-4">
-                    <div class="my-5">
-                      <h4 class="Rent">Descarga de imágenes</h4>
-
+                    <div class="my-4 d-flex align-items-center">
+                      <img src="{% static 'img/favicon.svg' %}" alt="EcoScan-ViT Logo" width="30" height="30" class="me-2 rounded-2" style="box-shadow: 0 0 8px rgba(16, 185, 129, 0.35);">
+                      <div>
+                        <h4 class="Rent m-0 fw-bold">EcoScan<span style="color: #10b981;">-ViT</span></h4>
+                        <small class="text-muted d-block" style="font-size: 0.75rem;">Delimitación y Consulta Satelital</small>
+                      </div>
                     </div>
                     <!-- Título -->
                     <div class="mb-3">

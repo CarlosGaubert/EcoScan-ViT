@@ -1,0 +1,63 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <defs>
+    <!-- Background Gradient -->
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#091b14" />
+      <stop offset="100%" stop-color="#020e08" />
+    </linearGradient>
+
+    <!-- Border Gradient -->
+    <linearGradient id="borderGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#10b981" />
+      <stop offset="50%" stop-color="#06b6d4" />
+      <stop offset="100%" stop-color="#059669" />
+    </linearGradient>
+
+    <!-- Leaf/Forest Gradient -->
+    <linearGradient id="forestGrad" x1="0%" y1="100%" x2="0%" y2="0%">
+      <stop offset="0%" stop-color="#059669" />
+      <stop offset="50%" stop-color="#10b981" />
+      <stop offset="100%" stop-color="#34d399" />
+    </linearGradient>
+
+    <filter id="softGlow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="1" result="blur" />
+      <feComposite in="SourceGraphic" in2="blur" operator="over" />
+    </filter>
+  </defs>
+
+  <!-- Base Rounded Container (Squircle) -->
+  <rect x="2.5" y="2.5" width="59" height="59" rx="14" fill="url(#bgGrad)" stroke="url(#borderGrad)" stroke-width="2.2" />
+
+  <!-- Vision Transformer Geo-Grid (subtle patches) -->
+  <path d="M 14 24 L 50 24 M 14 36 L 50 36 M 14 48 L 50 48 M 24 14 L 24 50 M 36 14 L 36 50 M 48 14 L 48 50"
+        stroke="#10b981" stroke-width="0.75" stroke-dasharray="2 3" opacity="0.25" />
+
+  <!-- Satellite Scanner Radar Waves (EcoScan) -->
+  <path d="M 33 13 A 22 22 0 0 1 51 31" fill="none" stroke="#38bdf8" stroke-width="1.8" stroke-linecap="round" opacity="0.5" />
+  <path d="M 39 15 A 15 15 0 0 1 49 25" fill="none" stroke="#38bdf8" stroke-width="2" stroke-linecap="round" opacity="0.8" />
+  <path d="M 44 17 A 8 8 0 0 1 47 20" fill="none" stroke="#38bdf8" stroke-width="2" stroke-linecap="round" opacity="0.95" />
+
+  <!-- Satellite Symbol -->
+  <g transform="translate(48, 14) rotate(45)">
+    <rect x="-3" y="-3" width="6" height="6" rx="1" fill="#e0f2fe" stroke="#0284c7" stroke-width="1" />
+    <line x1="-8" y1="0" x2="-3" y2="0" stroke="#38bdf8" stroke-width="2" stroke-linecap="round" />
+    <line x1="3" y1="0" x2="8" y2="0" stroke="#38bdf8" stroke-width="2" stroke-linecap="round" />
+    <circle cx="0" cy="0" r="1.2" fill="#0284c7" />
+  </g>
+
+  <!-- Eco Forest Tree / Leaf Motif -->
+  <!-- Top tier -->
+  <polygon points="28,21 37,33 19,33" fill="url(#forestGrad)" filter="url(#softGlow)" />
+  <!-- Middle tier -->
+  <polygon points="28,28 40,41 16,41" fill="url(#forestGrad)" />
+  <!-- Bottom tier -->
+  <polygon points="28,35 44,50 12,50" fill="url(#forestGrad)" />
+
+  <!-- Tree Trunk -->
+  <rect x="25.5" y="50" width="5" height="5.5" rx="1.5" fill="#047857" />
+
+  <!-- ViT Center Node -->
+  <circle cx="28" cy="36" r="2.8" fill="#f0fdf4" stroke="#059669" stroke-width="1" />
+  <circle cx="28" cy="36" r="1.2" fill="#10b981" />
+</svg>

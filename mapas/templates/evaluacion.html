@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% load static %}
+{% block title %}EcoScan-ViT - Evaluación: {{ imagen_satelital.name }}{% endblock %}
 {% block content %}
 <style>
   body {
@@ -216,6 +217,7 @@
         <path fill-rule="evenodd" d="M11.354 1.646a.5.5 0 0 1 0 .708L5.707 8l5.647 5.646a.5.5 0 0 1-.708.708l-6-6a.5.5 0 0 1 0-.708l6-6a.5.5 0 0 1 .708 0z"/>
       </svg>
     </a>
+    <img src="{% static 'img/favicon.svg' %}" alt="EcoScan-ViT Logo" width="32" height="32" class="me-3 rounded-2" style="box-shadow: 0 0 10px rgba(16, 185, 129, 0.3);">
     <h2 class="m-0 fs-4 fw-bold text-light">
       Evaluación de Área de Estudio: <span class="text-success">{{ imagen_satelital.name }}</span>
     </h2>
